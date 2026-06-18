@@ -1,0 +1,260 @@
+/* ============================================
+   layout.css — レスポンシブレイアウト
+   モバイル基準(下部タブバー) + 900px〜でPC型(左サイドバー)
+   ============================================ */
+
+#app {
+  min-height: 100dvh;
+}
+
+#view {
+  padding: var(--sp-4);
+  padding-bottom: calc(var(--tabbar-h) + var(--sp-5) + env(safe-area-inset-bottom));
+  max-width: 640px;
+  margin: 0 auto;
+  outline: none;
+}
+
+/* ---- 画面ヘッダ(各ビューが描画) ---- */
+.view-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  min-height: 44px;
+}
+.view-header h1 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  flex: 1;
+}
+.view-header .back-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  margin-left: -8px;
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---- モバイル: 下部タブバー ---- */
+#mainnav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 800;
+  background: rgba(22, 27, 34, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+#mainnav .nav-brand { display: none; }
+#mainnav .nav-links {
+  display: flex;
+  height: var(--tabbar-h);
+}
+#mainnav .nav-links a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--text-sub);
+  font-size: 0.6875rem;
+  -webkit-tap-highlight-color: transparent;
+}
+#mainnav .nav-links a.active { color: var(--accent); }
+
+/* ---- FAB ---- */
+#fab {
+  position: fixed;
+  right: var(--sp-4);
+  bottom: calc(var(--tabbar-h) + var(--sp-4) + env(safe-area-inset-bottom));
+  z-index: 790;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg); /* ライム地に白文字禁止 */
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(200, 255, 61, 0.25);
+  transition: transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+#fab:active { transform: scale(0.92); }
+#fab [data-icon] svg { width: 28px; height: 28px; stroke-width: 2.5; }
+#fab[hidden] { display: none; }
+
+/* ---- 記録フロー中(フルスクリーン): ナビ・FABを隠す ---- */
+body.fullscreen #mainnav,
+body.fullscreen #fab { display: none; }
+body.fullscreen #view {
+  padding-bottom: calc(var(--cta-h) + var(--sp-5) + env(safe-area-inset-bottom));
+}
+
+/* ---- 下部固定CTA(記録フロー) ---- */
+.cta-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 600;
+  padding: var(--sp-3) var(--sp-4);
+  padding-bottom: calc(var(--sp-3) + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--bg) 40%);
+  display: flex;
+  gap: var(--sp-3);
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+/* ---- ホームのグリッド ---- */
+.home-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-3);
+}
+.stat-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+
+/* ---- グラフ ---- */
+.chart-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.chart-box .chart-canvas-wrap {
+  position: relative;
+  height: 260px;
+  margin-top: var(--sp-3);
+}
+
+/* ---- PC履歴テーブル ---- */
+.history-table { display: none; }
+
+/* ============================================
+   PC レイアウト(900px〜)
+   ============================================ */
+@media (min-width: 900px) {
+  #app {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+  }
+
+  /* サイドバー化 */
+  #mainnav {
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    border-top: none;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    backdrop-filter: none;
+    padding: var(--sp-4);
+  }
+  #mainnav .nav-brand {
+    display: block;
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--accent);
+    margin-bottom: var(--sp-5);
+    padding: var(--sp-2);
+  }
+  #mainnav .nav-links {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    gap: var(--sp-1);
+  }
+  #mainnav .nav-links a {
+    flex: none;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--sp-3);
+    padding: var(--sp-3);
+    border-radius: var(--radius-sm);
+    font-size: 0.9375rem;
+  }
+  #mainnav .nav-links a.active {
+    background: var(--accent-dim);
+    font-weight: 700;
+  }
+
+  #view {
+    max-width: 1080px;
+    padding: var(--sp-6);
+    padding-bottom: var(--sp-6);
+  }
+
+  body.fullscreen #mainnav { display: flex; flex-direction: column; }
+  body.fullscreen #app { grid-template-columns: 220px 1fr; }
+  body.fullscreen #view { padding-bottom: calc(var(--cta-h) + var(--sp-6)); }
+
+  #fab {
+    bottom: var(--sp-5);
+    right: var(--sp-5);
+  }
+
+  .cta-bar {
+    left: 220px;
+    max-width: none;
+  }
+
+  /* ダッシュボード2カラム */
+  .home-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-4);
+  }
+  .home-grid .span-2 { grid-column: span 2; }
+  .stat-cards { grid-template-columns: repeat(4, 1fr); }
+
+  .chart-box .chart-canvas-wrap { height: 320px; }
+
+  /* PCはテーブル履歴 */
+  .history-table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .history-table th, .history-table td {
+    text-align: left;
+    padding: var(--sp-3);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9375rem;
+  }
+  .history-table th {
+    color: var(--text-sub);
+    font-size: 0.8125rem;
+    font-weight: 700;
+  }
+  .history-table tbody tr { cursor: pointer; }
+  .history-table tbody tr:hover { background: var(--surface); }
+
+  /* トースト位置 */
+  #toast-root { bottom: var(--sp-5); }
+
+  /* レストタイマー位置 */
+  .rest-timer-bar {
+    left: calc(220px + var(--sp-5));
+    right: auto;
+    width: 360px;
+  }
+}

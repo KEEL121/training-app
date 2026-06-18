@@ -1,0 +1,35 @@
+# ============================================
+# 個人データ(絶対にコミットしない)
+# 第1防御: 名前ベースで弾く。中身ベースの最終防壁は .githooks/pre-commit
+# ============================================
+
+# エクスポート/バックアップJSON(リネームにも耐える広めパターン)
+training-export-*.json
+*export*.json
+*backup*.json
+*-data.json
+*.local.json
+
+# データ置き場の慣習フォルダ
+/local/
+/backups/
+/private/
+/data/
+/test-images/
+
+# テスト画像(アイコン以外の画像はコミットしない)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tif
+*.tiff
+*.heic
+*.webp
+!icons/*.png
+
+# OS / エディタ
+Thumbs.db
+Desktop.ini
+.DS_Store

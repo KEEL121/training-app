@@ -1,0 +1,52 @@
+#!/bin/sh
+# pre-commit — 個人データの誤コミットを止める最終防壁
+#
+# 有効化(クローン/初回に1回だけ):
+#   git config core.hooksPath .githooks
+#
+# 検査内容:
+#   1) パス拒否: icons/ 以外の画像、export/backup 名のJSON
+#   2) 中身シグネチャ拒否: ファイル内に "app":"training-log"(エクスポートJSON固有の
+#      JSON二重引用形)を検出 → 名前を変えたデータファイルも捕捉
+#      ※ ソースの app: 'training-log'(JSの単一引用)は誤検知しない
+#      ※ js/ vendor/ *.md は中身スキャン対象外(誤爆回避)
+
+violations=""
+
+# ステージされた追加/変更ファイル(削除・リネーム元は除く)
+staged=$(git diff --cached --name-only --diff-filter=AM)
+
+for f in $staged; do
+  # ---- 1) パス拒否 ----
+  case "$f" in
+    icons/*) : ;;  # アイコンは許可
+    *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.tif|*.tiff|*.heic|*.webp)
+      violations="$violations\n  [画像] $f" ; continue ;;
+  esac
+  case "$f" in
+    *export*.json|*backup*.json|*-data.json|*.local.json)
+      violations="$violations\n  [データJSON] $f" ; continue ;;
+  esac
+
+  # ---- 2) 中身シグネチャ拒否 ----
+  # コード/ドキュメント/同梱物はスキャン対象外(誤爆回避)
+  case "$f" in
+    js/*|vendor/*|*.md|.githooks/*) continue ;;
+  esac
+  # バイナリはスキップ。テキスト内のエクスポート署名のみ検出。
+  if git show ":$f" 2>/dev/null | grep -Iq '"app"[[:space:]]*:[[:space:]]*"training-log"'; then
+    violations="$violations\n  [データ署名検出] $f"
+  fi
+done
+
+if [ -n "$violations" ]; then
+  printf '\n\033[31m✖ コミットを中止しました: 個人データの可能性があるファイルが含まれています\033[0m\n'
+  printf '%b\n' "$violations"
+  printf '\n対処:\n'
+  printf '  ・データ/写真はリポジトリ外(例: ~/Documents/training-data/)へ移動\n'
+  printf '  ・ステージから外す: git restore --staged <file>\n'
+  printf '  ・誤判定で本当に必要な場合のみ: git commit --no-verify\n\n'
+  exit 1
+fi
+
+exit 0
