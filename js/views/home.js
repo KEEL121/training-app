@@ -29,17 +29,27 @@ export async function render(container) {
     ),
   );
 
-  /* ---- 進行中セッションの再開バナー ---- */
-  const active = await getSetting('activeWorkout');
-  if (active && active.date === today) {
-    const ex = exById[active.exerciseId];
-    const rec = await get('workouts', active.recordId);
-    if (ex && rec && !rec.deletedAt) {
-      const doneCount = (rec.sets || []).filter((s) => s.done).length;
-      container.append(el('div', { class: 'banner' },
-        el('span', { class: 'grow', text: `「${ex.name}」${doneCount}セットまで記録中` }),
-        el('button', { class: 'btn btn-primary', text: '再開', onClick: () => navigate(`/workout/${ex.id}`) }),
-      ));
+  /* ---- 進行中セッションの再開バナー(サーキット優先・二重表示しない) ---- */
+  const circuitState = await getSetting('activeCircuitTimer');
+  if (circuitState && circuitState.date === today) {
+    const doneM = Math.floor((circuitState.segIndex || 0) / 4);
+    const totalM = (circuitState.order || []).length || 10;
+    container.append(el('div', { class: 'banner' },
+      el('span', { class: 'grow', text: `🔄 サーキット ${doneM}/${totalM} 実施中` }),
+      el('button', { class: 'btn btn-primary', text: '再開', onClick: () => navigate('/circuit') }),
+    ));
+  } else {
+    const active = await getSetting('activeWorkout');
+    if (active && active.date === today) {
+      const ex = exById[active.exerciseId];
+      const rec = await get('workouts', active.recordId);
+      if (ex && rec && !rec.deletedAt) {
+        const doneCount = (rec.sets || []).filter((s) => s.done).length;
+        container.append(el('div', { class: 'banner' },
+          el('span', { class: 'grow', text: `「${ex.name}」${doneCount}セットまで記録中` }),
+          el('button', { class: 'btn btn-primary', text: '再開', onClick: () => navigate(`/workout/${ex.id}`) }),
+        ));
+      }
     }
   }
 
@@ -157,6 +167,8 @@ export async function render(container) {
       el('button', { class: 'btn grow', onClick: () => navigate('/cardio') }, icon('run', 18), '有酸素'),
       el('button', { class: 'btn grow', onClick: () => navigate('/body') }, icon('scale', 18), '体組成'),
     ),
+    el('button', { class: 'btn btn-cta mt-2', onClick: () => navigate('/circuit') },
+      icon('timer', 18), 'サーキット(30分)'),
   ));
 
   /* ---- 今日の記録サマリ ---- */

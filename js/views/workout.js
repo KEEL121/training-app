@@ -27,18 +27,49 @@ export async function renderPicker(container) {
     ),
   );
 
-  // 進行中セッションの再開バナー
-  const active = await getSetting('activeWorkout');
   const cutoff = (await getSetting('dateCutoff', { hour: 3 })).hour;
   const today = todayStr(cutoff);
-  if (active && active.date === today) {
-    const ex = await get('exercises', active.exerciseId);
-    if (ex) {
-      container.append(el('div', { class: 'banner' },
-        el('span', { class: 'grow', text: `「${ex.name}」を記録中です` }),
-        el('button', { class: 'btn btn-primary', text: '再開', onClick: () => navigate(`/workout/${active.exerciseId}`) }),
-      ));
+
+  // サーキット再開バナー(優先)/ 進行中サーキットがあれば単一種目バナーは出さない
+  const circuitState = await getSetting('activeCircuitTimer');
+  const circuitActive = circuitState && circuitState.date === today;
+  if (circuitActive) {
+    const doneM = Math.floor((circuitState.segIndex || 0) / 4);
+    const totalM = (circuitState.order || []).length || 10;
+    container.append(el('div', { class: 'banner' },
+      el('span', { class: 'grow', text: `🔄 サーキット ${doneM}/${totalM} 実施中` }),
+      el('button', { class: 'btn btn-primary', text: '再開', onClick: () => navigate('/circuit') }),
+    ));
+  } else {
+    // 進行中セッションの再開バナー
+    const active = await getSetting('activeWorkout');
+    if (active && active.date === today) {
+      const ex = await get('exercises', active.exerciseId);
+      if (ex) {
+        container.append(el('div', { class: 'banner' },
+          el('span', { class: 'grow', text: `「${ex.name}」を記録中です` }),
+          el('button', { class: 'btn btn-primary', text: '再開', onClick: () => navigate(`/workout/${active.exerciseId}`) }),
+        ));
+      }
     }
+  }
+
+  // サーキット開始カード(先頭・実施中でなければ)
+  if (!circuitActive) {
+    container.append(el('div', {
+      class: 'card tappable mb-4', role: 'button', tabindex: '0',
+      onClick: () => navigate('/circuit'),
+      onKeydown: (e) => { if (e.key === 'Enter') navigate('/circuit'); },
+    },
+      el('div', { class: 'row' },
+        icon('timer'),
+        el('div', { class: 'grow' },
+          el('div', { class: 'li-title', text: '🔄 サーキットトレーニング(30分)' }),
+          el('div', { class: 'li-sub', text: 'マシン10台+階段昇降を時間制で一巡' }),
+        ),
+        icon('chevronRight', 18),
+      ),
+    ));
   }
 
   const exercises = (await getAll('exercises')).filter((e) => e.type === 'strength');

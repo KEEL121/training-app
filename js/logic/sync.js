@@ -15,6 +15,7 @@
 
 import { getAll, bulkPutSync, STORES } from '../db.js';
 import { SCHEMA_VERSION } from '../seed.js';
+import { normalizeOrder } from '../data/circuits.js';
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_RECORDS_PER_STORE = 100000;
@@ -116,8 +117,9 @@ const sanitizers = {
     };
   },
   settings(r) {
-    const allowedKeys = ['profile', 'suggestion', 'restTimer', 'dateCutoff', 'onboarded', 'seedVersion'];
-    // deviceId / lastExportAt / activeWorkout は端末固有のため取り込まない
+    const allowedKeys = ['profile', 'suggestion', 'restTimer', 'dateCutoff', 'onboarded', 'circuitOrder'];
+    // deviceId / lastExportAt / activeWorkout / activeCircuitTimer / seedVersion は
+    // 端末固有のため取り込まない(seedVersionは端末ごとの補充状態)
     if (typeof r.key !== 'string' || !allowedKeys.includes(r.key)) return null;
     let value = null;
     switch (r.key) {
@@ -141,7 +143,7 @@ const sanitizers = {
         value = { hour: num(r.value?.hour, 0, 12) ?? 3 };
         break;
       case 'onboarded': value = r.value === true; break;
-      case 'seedVersion': value = num(r.value, 0, 100) ?? 0; break;
+      case 'circuitOrder': value = normalizeOrder(r.value, null); break;
     }
     return { key: r.key, value, ...timestamps(r) };
   },

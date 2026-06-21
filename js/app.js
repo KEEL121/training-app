@@ -18,6 +18,7 @@ import * as exercises from './views/exercises.js';
 import * as settings from './views/settings.js';
 import * as onboarding from './views/onboarding.js';
 import * as ocrCapture from './views/ocr-capture.js';
+import * as circuit from './views/circuit.js';
 
 async function main() {
   hydrateStaticIcons();
@@ -30,6 +31,7 @@ async function main() {
     { pattern: '/workout', render: workout.renderPicker, fullscreen: true },
     { pattern: '/workout/:exerciseId', render: workout.renderSession, fullscreen: true },
     { pattern: '/workout-rec/:recordId', render: workout.renderSession, fullscreen: true },
+    { pattern: '/circuit', render: circuit.render, fullscreen: true },
     { pattern: '/cardio', render: cardio.render, fullscreen: true },
     { pattern: '/cardio/:id', render: cardio.render, fullscreen: true },
     { pattern: '/body', render: body.render, fullscreen: true },

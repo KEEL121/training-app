@@ -6,7 +6,7 @@
 //
 // ★リリース手順: ファイルを変更したら必ず SHELL_VERSION を上げること(README参照)
 
-const SHELL_VERSION = 'v2';
+const SHELL_VERSION = 'v3';
 const SHELL_CACHE = `app-shell-${SHELL_VERSION}`;
 const OCR_CACHE = 'ocr-v1';
 
@@ -22,6 +22,7 @@ const SHELL_FILES = [
   './js/seed.js',
   './js/util.js',
   './js/data/default-exercises.js',
+  './js/data/circuits.js',
   './js/logic/calories.js',
   './js/logic/stats.js',
   './js/logic/suggestion.js',
@@ -42,6 +43,7 @@ const SHELL_FILES = [
   './js/views/exercises.js',
   './js/views/settings.js',
   './js/views/onboarding.js',
+  './js/views/circuit.js',
   './vendor/chart.umd.min.js',
   './vendor/chartjs-adapter-date-fns.bundle.min.js',
   './icons/icon-192.png',

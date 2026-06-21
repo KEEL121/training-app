@@ -65,11 +65,14 @@ export const DEFAULT_EXERCISES = [
   s('ex-hammer-curl', 'ハンマーカール', 'arms', { increment: 1.0, sortOrder: 30 }),
   s('ex-triceps-extension', 'トライセプスエクステンション', 'arms', { increment: 1.0, sortOrder: 40 }),
   s('ex-pressdown', 'ケーブルプレスダウン', 'arms', { sortOrder: 50 }),
+  s('ex-bicep-curl', 'バイセップカール(マシン)', 'arms', { sortOrder: 60 }),
+  s('ex-triceps-press', 'トライセッププレス(マシン)', 'arms', { sortOrder: 70 }),
   // ---- 体幹 ----
   s('ex-crunch', 'クランチ(腹筋)', 'core', { mets: 3.8, increment: 1.0, sortOrder: 10 }),
   s('ex-leg-raise', 'レッグレイズ', 'core', { mets: 3.8, increment: 1.0, sortOrder: 20 }),
   s('ex-ab-roller', 'アブローラー', 'core', { increment: 1.0, sortOrder: 30 }),
   s('ex-back-extension', 'バックエクステンション', 'core', { mets: 3.8, increment: 1.0, sortOrder: 40 }),
+  s('ex-abdominal', 'アブドミナル(マシン)', 'core', { mets: 3.8, sortOrder: 50 }),
   // ---- 有酸素 ----
   c('ex-walking', 'ウォーキング(4km/h)', 3.5, true, 10),
   c('ex-brisk-walking', '速歩(6.4km/h)', 5.0, true, 20),

@@ -83,8 +83,11 @@ function finish() {
   beep();
 }
 
-/** 短いビープ×2(WebAudio、外部ファイル不要でCSP適合) */
-function beep() {
+/**
+ * ビープ音(WebAudio、外部ファイル不要でCSP適合)。
+ * @param {number[]} [freqs] 鳴らす周波数列(0.35秒間隔)。既定は2音
+ */
+export function beep(freqs = [880, 1100]) {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
@@ -100,8 +103,7 @@ function beep() {
       osc.start(ctx.currentTime + t);
       osc.stop(ctx.currentTime + t + 0.3);
     };
-    play(0, 880);
-    play(0.35, 1100);
-    setTimeout(() => ctx.close(), 1200);
+    freqs.forEach((f, i) => play(i * 0.35, f));
+    setTimeout(() => ctx.close(), 400 + freqs.length * 350);
   } catch { /* 音は失敗しても致命的でない */ }
 }
