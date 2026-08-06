@@ -2,24 +2,26 @@
 // circuit.js — サーキットトレーニング(時間制インターバルタイマー)
 // 専用画面 #/circuit。既存の記録フロー(workout.js renderSession)には手を入れない。
 //
-// 1サイクル: マシン60s → レスト30s → 階段昇降60s → レスト30s。これを10台ぶん = 30分。
+// 1サイクル: マシン → レスト → 階段昇降 → レスト。これをマシン台数ぶん(既定60/30/60/30秒×10台=30分)。
+// - 秒数は settings.circuitTiming(設定画面で変更可)。1サイクル4セグメントの構成自体は固定
 // - 重量は準備画面で各マシンに設定(前回値プリフィル)。タイマー中は変更しない
 // - endTime方式のカウントダウン + 遷移ごとに beep+vibrate + Screen Wake Lock
-// - 進行状態は settings.activeCircuitTimer に保持(当日のみ再開可)
+// - 進行状態は settings.activeCircuitTimer に保持(当日のみ再開可)。開始時の秒数を同梱するため、
+//   実行中に設定を変えても走行中のセッションは影響を受けない
 // - 完了/終了時: 各マシン→workouts、階段昇降→cardio を生成(カロリーは既存ロジックで自動算出)
 
 import { el, clear, uuid, todayStr, fmtNum, vibrate, formatDateJa } from '../util.js';
-import { get, getAll, getAllByIndex, put, getSetting, putSetting } from '../db.js';
-import { DEFAULT_CIRCUIT, buildSegments, totalSeconds, normalizeOrder } from '../data/circuits.js';
-import { workoutKcal, cardioKcal, resolveWeight } from '../logic/calories.js';
+import { getAll, getAllByIndex, put, getSetting, putSetting } from '../db.js';
+import {
+  DEFAULT_CIRCUIT, buildSegments, totalSeconds, formatTotal, normalizeOrder, normalizeTiming,
+} from '../data/circuits.js';
+import { cardioKcal, resolveWeight } from '../logic/calories.js';
 import { maxWeight } from '../logic/stats.js';
 import { beep } from '../ui/rest-timer.js';
-import { toast, openModal } from '../ui/components.js';
+import { openModal } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { createStepper } from '../ui/stepper.js';
 import { navigate, onLeave } from '../router.js';
-
-const T = DEFAULT_CIRCUIT.timing;
 
 export async function render(container) {
   const cutoff = (await getSetting('dateCutoff', { hour: 3 })).hour;
@@ -33,15 +35,16 @@ export async function render(container) {
   }
 
   if (state) {
-    await renderTimer(container, state, today);
+    // 走行中セッションは開始時の秒数で継続(未設定の旧stateは既定値)
+    await renderTimer(container, state, today, normalizeTiming(state.timing || DEFAULT_CIRCUIT.timing));
   } else {
-    await renderPrep(container, today);
+    await renderPrep(container, today, normalizeTiming(await getSetting('circuitTiming')));
   }
 }
 
 /* ============ 準備画面 ============ */
 
-async function renderPrep(container, today) {
+async function renderPrep(container, today, timing) {
   const exercises = await getAll('exercises');
   const exById = Object.fromEntries(exercises.map((e) => [e.id, e]));
   const validIds = new Set(exercises.map((e) => e.id));
@@ -61,9 +64,13 @@ async function renderPrep(container, today) {
     el('div', { class: 'view-header' },
       el('button', { class: 'back-btn', 'aria-label': '戻る', onClick: () => navigate('/') }, icon('chevronLeft')),
       el('div', { class: 'grow' },
-        el('h1', { text: 'サーキット(30分)' }),
-        el('div', { class: 'caption', text: `${order.length}台 ・ マシン1分→レスト30秒→階段昇降1分→レスト30秒` }),
+        el('h1', { text: `サーキット(${formatTotal(order, timing)})` }),
+        el('div', { class: 'caption', text: `${order.length}台 ・ ${describeTiming(timing)}` }),
       ),
+      el('button', {
+        class: 'btn', text: '秒数を変更',
+        onClick: () => navigate('/settings'),
+      }),
     ),
   );
 
@@ -130,15 +137,16 @@ async function renderPrep(container, today) {
   renderList();
 
   container.append(el('div', { class: 'cta-bar' },
-    el('button', { class: 'btn btn-primary btn-cta', text: '開始(30分)', onClick: start }),
+    el('button', { class: 'btn btn-primary btn-cta', text: `開始(${formatTotal(order, timing)})`, onClick: start }),
   ));
 
   async function start() {
     const weights = {};
     for (const id of order) weights[id] = steppers[id] ? steppers[id].get() : null;
-    const segs = buildSegments(order, T, DEFAULT_CIRCUIT.aerobicId);
+    const segs = buildSegments(order, timing, DEFAULT_CIRCUIT.aerobicId);
     const newState = {
       order: order.slice(),
+      timing: { ...timing }, // 開始時の秒数を固定(途中で設定変更されてもズレない)
       segIndex: 0,
       segEndAt: Date.now() + segs[0].sec * 1000,
       paused: false,
@@ -148,18 +156,23 @@ async function renderPrep(container, today) {
     };
     await putSetting('activeCircuitTimer', newState);
     clear(container);
-    await renderTimer(container, newState, today);
+    await renderTimer(container, newState, today, timing);
   }
+}
+
+/** 「マシン60秒→レスト30秒→階段昇降60秒→レスト30秒」形式の説明文 */
+function describeTiming(t) {
+  return `マシン${t.machineSec}秒→レスト${t.restSec}秒→階段昇降${t.aerobicSec}秒→レスト${t.rest2Sec}秒`;
 }
 
 /* ============ タイマー画面 ============ */
 
-async function renderTimer(container, state, today) {
+async function renderTimer(container, state, today, timing) {
   const exercises = await getAll('exercises', { includeDeleted: true });
   const exById = Object.fromEntries(exercises.map((e) => [e.id, e]));
   const order = state.order || normalizeOrder(await getSetting('circuitOrder'), null);
-  const segs = buildSegments(order, T, DEFAULT_CIRCUIT.aerobicId);
-  const totalSec = totalSeconds(order, T);
+  const segs = buildSegments(order, timing, DEFAULT_CIRCUIT.aerobicId);
+  const totalSec = totalSeconds(order, timing);
 
   let tickId = null;
   let wakeLock = null;
@@ -348,60 +361,58 @@ async function renderTimer(container, state, today) {
     let aerobicSegDone = 0;
     order.forEach((_id, i) => { if (state.segIndex > i * 4 + 2) aerobicSegDone++; });
 
-    const records = {};
     const now = today;
-    // 各マシン → workouts(重量・1分・reps null)
+    // 各マシン → workouts。重量の履歴を残すのが目的で、durationMin は明示的に0にする。
+    // カロリーはセッション全体を1件の有酸素記録で計上するため、ここで足すと二重計上になる
     for (const i of doneMachineIdx) {
       const id = order[i];
       const w = state.weights && state.weights[id];
-      records[id] = await put('workouts', {
+      await put('workouts', {
         id: uuid(), date: now, exerciseId: id,
         sets: [{ weight: w ?? null, reps: null, done: true }],
-        durationMin: Math.round(T.machineSec / 60) || 1,
+        durationMin: 0,
         note: 'サーキット', deletedAt: null,
       });
     }
-    // 階段昇降 → cardio(合計分数)
-    let stairMin = 0;
-    if (aerobicSegDone > 0) {
-      stairMin = Math.round((aerobicSegDone * T.aerobicSec) / 60);
+
+    // セッション全体 → cardio 1件(8.0 METs)。通過したセグメントの秒数を合計する。
+    // マシン実働+階段だけを足すとレスト時間が丸ごと落ち、3〜4割の過小評価になる
+    const stairMin = Math.round((aerobicSegDone * timing.aerobicSec) / 60);
+    const sessionMin = Math.max(1, Math.round(
+      segs.slice(0, state.segIndex).reduce((a, x) => a + x.sec, 0) / 60,
+    ));
+    if (doneMachineIdx.length > 0) {
       await put('cardio', {
-        id: uuid(), date: now, exerciseId: DEFAULT_CIRCUIT.aerobicId,
-        durationMin: stairMin || 1, distanceKm: null, note: 'サーキット', deletedAt: null,
+        id: uuid(), date: now, exerciseId: DEFAULT_CIRCUIT.sessionId,
+        durationMin: sessionMin, distanceKm: null,
+        note: `サーキット(マシン${doneMachineIdx.length}台${stairMin > 0 ? `・階段昇降約${stairMin}分` : ''})`,
+        deletedAt: null,
       });
     }
 
     await putSetting('activeCircuitTimer', null);
-    await showSummary(doneMachineIdx, aerobicSegDone, stairMin, order, exById, now, completed);
+    await showSummary(doneMachineIdx, sessionMin, stairMin, order, exById, now, completed);
   }
 }
 
 /* ============ 完了サマリ ============ */
 
-async function showSummary(doneMachineIdx, aerobicSegDone, stairMin, order, exById, date, completed) {
+async function showSummary(doneMachineIdx, sessionMin, stairMin, order, exById, date, completed) {
   const bodies = await getAll('body');
   const profile = await getSetting('profile');
   const weightKg = resolveWeight(date, bodies, profile);
 
-  let kcal = 0;
-  if (weightKg) {
-    for (const i of doneMachineIdx) {
-      const ex = exById[order[i]];
-      if (ex) kcal += workoutKcal({ sets: [{ done: true }], durationMin: Math.round(DEFAULT_CIRCUIT.timing.machineSec / 60) || 1 }, ex, weightKg).kcal;
-    }
-    if (stairMin > 0) {
-      const stair = exById[DEFAULT_CIRCUIT.aerobicId];
-      if (stair) kcal += cardioKcal({ durationMin: stairMin }, stair, weightKg);
-    }
-  }
-  const totalMin = doneMachineIdx.length + stairMin; // マシン各1分 + 階段
+  // 記録側と同じ計算(セッション全体を8.0 METsで1件)。種目が削除済みでも既定値で出す
+  const sessionEx = exById[DEFAULT_CIRCUIT.sessionId] || { mets: 8.0 };
+  const kcal = weightKg ? cardioKcal({ durationMin: sessionMin }, sessionEx, weightKg) : 0;
+  const totalMin = sessionMin;
   vibrate([150, 80, 150, 80, 200]);
 
   const content = el('div', { class: 'text-center' },
     el('div', { styles: { fontSize: '3rem' }, text: completed ? '🎉' : '✅' }),
     el('h2', { text: completed ? 'サーキット完了!' : 'サーキットを終了しました' }),
     el('div', { class: 'hero-num text-accent mt-2', text: `${doneMachineIdx.length}/${order.length} マシン` }),
-    el('p', { class: 'caption mt-2', text: `${formatDateJa(date)} ・ 実働 約${totalMin}分${kcal ? ` ・ 約${fmtNum(kcal)}kcal` : ''}` }),
+    el('p', { class: 'caption mt-2', text: `${formatDateJa(date)} ・ 所要 約${totalMin}分${stairMin > 0 ? `(階段昇降 約${stairMin}分)` : ''}${kcal ? ` ・ 約${fmtNum(kcal)}kcal` : ''}` }),
     !weightKg ? el('p', { class: 'caption text-warn mt-2', text: '体重を記録するとカロリーが出ます' }) : null,
     el('button', { class: 'btn btn-primary btn-cta mt-4', text: 'ホームへ', onClick: () => { close(); navigate('/'); } }),
     el('button', { class: 'btn btn-cta mt-2', text: '履歴を見る', onClick: () => { close(); navigate('/history'); } }),

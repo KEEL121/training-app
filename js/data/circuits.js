@@ -1,7 +1,7 @@
 // @ts-check
 // circuits.js — サーキットトレーニングのプリセット定義
-// 実際の実施順は settings.circuitOrder(ユーザーが並べ替え可)を使う。
-// 秒数・有酸素種目・収録マシンは固定(v1)。
+// 実際の実施順は settings.circuitOrder、秒数は settings.circuitTiming(どちらもユーザー変更可)。
+// 有酸素種目・収録マシンは固定(v1)。
 
 export const DEFAULT_CIRCUIT = {
   id: 'circuit-default',
@@ -20,7 +20,22 @@ export const DEFAULT_CIRCUIT = {
     'ex-chest-press',
   ],
   aerobicId: 'ex-stair-climbing', // 各サイクルの有酸素ステーション
+  // セッション全体の消費カロリーを計上する種目(8.0 METs)。
+  // マシン実働+階段の足し算ではレスト時間が落ちて3〜4割の過小評価になる
+  sessionId: 'ex-circuit-training',
   timing: { machineSec: 60, restSec: 30, aerobicSec: 60, rest2Sec: 30 },
+};
+
+/**
+ * 秒数設定の許容範囲(設定画面の入力欄もこの定義から生成する)。
+ * 1サイクル=4セグメント構成は固定のため(進捗計算が segIndex/4 前提)、
+ * 「レストなし」に相当する0秒は許可せず下限を5秒とする。
+ */
+export const TIMING_LIMITS = {
+  machineSec: { min: 10, max: 300, label: 'マシン(秒)' },
+  restSec: { min: 5, max: 300, label: 'マシン後のレスト(秒)' },
+  aerobicSec: { min: 10, max: 600, label: '有酸素(階段昇降)(秒)' },
+  rest2Sec: { min: 5, max: 300, label: '有酸素後のレスト(秒)' },
 };
 
 /**
@@ -53,6 +68,30 @@ export function buildSegments(order, timing, aerobicId) {
 /** 合計所要秒数 */
 export function totalSeconds(order, timing) {
   return order.length * (timing.machineSec + timing.restSec + timing.aerobicSec + timing.rest2Sec);
+}
+
+/** 合計所要時間の表示用文字列(例: "30分") */
+export function formatTotal(order, timing) {
+  return `${Math.round(totalSeconds(order, timing) / 60)}分`;
+}
+
+/**
+ * 保存された circuitTiming を検証して正規化。
+ * 未設定・型不正・範囲外は既定値/範囲内へ丸める(不正値でタイマーが壊れないように)。
+ * @param {any} value
+ * @returns {{machineSec:number,restSec:number,aerobicSec:number,rest2Sec:number}}
+ */
+export function normalizeTiming(value) {
+  const out = {};
+  for (const key of Object.keys(TIMING_LIMITS)) {
+    const lim = TIMING_LIMITS[key];
+    const v = Math.round(Number(value == null ? NaN : value[key]));
+    out[key] = Number.isFinite(v)
+      ? Math.min(Math.max(v, lim.min), lim.max)
+      : DEFAULT_CIRCUIT.timing[key];
+  }
+  // @ts-ignore 上のループで4キーすべて埋まる
+  return out;
 }
 
 /**

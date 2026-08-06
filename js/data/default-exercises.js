@@ -46,13 +46,24 @@ export const DEFAULT_EXERCISES = [
   s('ex-bent-over-row', 'ベントオーバーロー', 'back', { isCompound: true, sortOrder: 20 }),
   s('ex-lat-pulldown', 'ラットプルダウン', 'back', { sortOrder: 30 }),
   s('ex-seated-row', 'シーテッドロー', 'back', { sortOrder: 40 }),
+  s('ex-shrug', 'シュラッグ', 'back', { sortOrder: 45 }),
   s('ex-pullup', '懸垂', 'back', { mets: 3.8, increment: 1.0, isCompound: true, sortOrder: 50 }),
   // ---- 脚 ----
   s('ex-squat', 'スクワット', 'legs', { isCompound: true, mets: 6.0, sortOrder: 10 }),
+  // デッドリフトはbackに分類済みのため、脚には股関節伸展(後鎖)の複合種目が無かった。
+  // 膝支配の種目だけだとハムストリングスが手薄になるのでRDLを早い位置に置く
+  s('ex-romanian-deadlift', 'ルーマニアンデッドリフト', 'legs', { isCompound: true, mets: 6.0, sortOrder: 12 }),
   s('ex-leg-press', 'レッグプレス', 'legs', { isCompound: true, increment: 5.0, sortOrder: 20 }),
+  // ハック系はソリ型マシンの高重量コンパウンド。METsはマシン系の代表値5.0、
+  // 重量刻みはプレート運用に合わせてレッグプレスと同じ5.0kgとする
+  s('ex-hack-squat', 'ハックスクワット', 'legs', { isCompound: true, increment: 5.0, sortOrder: 22 }),
+  s('ex-reverse-hack-squat', 'リバースハックスクワット', 'legs', { isCompound: true, increment: 5.0, sortOrder: 24 }),
+  s('ex-hip-thrust', 'ヒップスラスト', 'legs', { isCompound: true, sortOrder: 26 }),
   s('ex-lunge', 'ランジ', 'legs', { increment: 1.0, sortOrder: 30 }),
   s('ex-leg-extension', 'レッグエクステンション', 'legs', { sortOrder: 40 }),
   s('ex-leg-curl', 'レッグカール', 'legs', { sortOrder: 50 }),
+  s('ex-abduction', 'アブダクション(マシン)', 'legs', { increment: 5.0, sortOrder: 55 }),
+  s('ex-adduction', 'アダクション(マシン)', 'legs', { increment: 5.0, sortOrder: 56 }),
   s('ex-calf-raise', 'カーフレイズ', 'legs', { sortOrder: 60 }),
   // ---- 肩 ----
   s('ex-shoulder-press', 'ショルダープレス', 'shoulders', { isCompound: true, sortOrder: 10 }),
@@ -84,4 +95,8 @@ export const DEFAULT_EXERCISES = [
   c('ex-stair-climbing', '階段昇降/ステアクライマー', 9.0, false, 80),
   c('ex-jump-rope', '縄跳び', 11.0, false, 90),
   c('ex-elliptical', 'エリプティカル', 5.0, false, 100),
+  // サーキット1セッション全体を1件で計上するための種目(circuit.js が自動生成する)。
+  // マシン実働+階段だけを足すとレスト時間が丸ごと落ちて3〜4割の過小になるため、
+  // Compendium の "circuit training, general = 8.0 METs" でセッション全体を評価する
+  c('ex-circuit-training', 'サーキットトレーニング', 8.0, false, 110),
 ];

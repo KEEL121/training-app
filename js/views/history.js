@@ -83,7 +83,10 @@ export async function render(container) {
       const sets = (w.sets || []).filter((s) => s.done !== false);
       const maxW = sets.length ? Math.max(...sets.map((s) => s.weight || 0)) : 0;
       const weightKg = resolveWeight(w.date, bodies, profile);
-      const kcalStr = ex && weightKg ? ` / 約${workoutKcal(w, ex, weightKg).kcal}kcal` : '';
+      // durationMin===0 はサーキット由来。カロリーはセッション全体の有酸素記録側に
+      // 計上済みなので、ここで「約0kcal」と出さない
+      const kcalStr = ex && weightKg && w.durationMin !== 0
+        ? ` / 約${workoutKcal(w, ex, weightKg).kcal}kcal` : '';
       block.append(itemRow(
         'dumbbell',
         ex ? ex.name : '(削除された種目)',
