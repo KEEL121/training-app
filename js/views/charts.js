@@ -296,7 +296,9 @@ export async function render(container) {
     );
     const weeks = [...weekly.keys()].sort();
     const totalK = weeks.reduce((s, wk) => s + weekly.get(wk).strength + weekly.get(wk).cardio, 0);
-    const canvas = chartBox('週次消費カロリー', weeks.length ? `期間合計 約${fmtNum(totalK)}kcal(METs方式の推定)` : '');
+    const canvas = chartBox('週次消費カロリー', weeks.length
+      ? `期間合計 約${fmtNum(totalK)}kcal(METs方式の推定・安静時代謝を除いた正味)。絶対値ではなく推移で見てください`
+      : '');
     if (weeks.length === 0) {
       return emptyNote(canvas, bodies.length === 0 ? '体重を記録するとカロリーが計算できます' : 'この期間の記録がありません');
     }

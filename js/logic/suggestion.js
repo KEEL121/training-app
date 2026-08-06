@@ -13,6 +13,17 @@
 import { GROUP_PRIORITY, MUSCLE_LABEL } from '../data/default-exercises.js';
 import { daysBetween } from '../util.js';
 
+/** 1回の提案に入れる複合種目の上限(残りの枠は単関節の補助種目に回す) */
+const MAX_COMPOUND = 2;
+
+/**
+ * 提案の材料にしてよいセットか。
+ * サーキット由来の記録は reps:null で保存されるため、これを弾かないと
+ * 「目標1回〜」や誤ったデロード提案が出る(回数0扱いで常に未達判定になるため)。
+ * @param {{done?: boolean, reps?: number|null}} s
+ */
+const isCountedSet = (s) => s.done !== false && (s.reps || 0) > 0;
+
 /**
  * @typedef {Object} SuggestionItem
  * @property {string} exerciseId
@@ -65,11 +76,19 @@ export function suggest(workouts, exercises, params, today) {
   const targetGroup = pool[0] || null;
   if (!targetGroup) return { targetGroup: null, targetGroupLabel: '', items: [] };
 
-  // Step2: 種目選定(複合優先 → sortOrder順、3〜4種目)
-  const candidates = strength
+  // Step2: 種目選定(複合を先頭2種目まで → 残りは単関節、計4種目)
+  // 複合を無制限に優先すると、脚のように複合種目が多い部位で高重量の多関節が4枠を
+  // 占有し、補助種目(ハム・カーフ等)が締め出される。1部位1回のセット数も過多になる。
+  const inGroup = strength
     .filter((e) => e.muscleGroup === targetGroup)
-    .sort((a, b) => (b.isCompound ? 1 : 0) - (a.isCompound ? 1 : 0) || a.sortOrder - b.sortOrder)
-    .slice(0, 4);
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const compounds = inGroup.filter((e) => e.isCompound);
+  const isolation = inGroup.filter((e) => !e.isCompound);
+  const candidates = [
+    ...compounds.slice(0, MAX_COMPOUND),
+    ...isolation,
+    ...compounds.slice(MAX_COMPOUND), // 単関節が足りない部位はここで埋める
+  ].slice(0, 4);
 
   // Step3: 各種目のセット内容
   const items = candidates.map((ex) => suggestForExercise(ex, workouts, params));
@@ -86,9 +105,9 @@ export function suggestForExercise(exercise, allWorkouts, params) {
   const low = params.targetRepsLow || 8;
   const inc = exercise.increment || 2.5;
 
-  // この種目の履歴(新しい順)
+  // この種目の履歴(新しい順)。回数が記録されたセットを1つも含まない記録は使わない
   const history = allWorkouts
-    .filter((w) => w.exerciseId === exercise.id && (w.sets || []).some((s) => s.done !== false))
+    .filter((w) => w.exerciseId === exercise.id && (w.sets || []).some(isCountedSet))
     .sort((a, b) => b.date.localeCompare(a.date));
 
   if (history.length === 0) {
@@ -101,7 +120,7 @@ export function suggestForExercise(exercise, allWorkouts, params) {
   }
 
   const last = history[0];
-  const lastSets = (last.sets || []).filter((s) => s.done !== false);
+  const lastSets = (last.sets || []).filter(isCountedSet);
   const setCount = Math.min(Math.max(lastSets.length, 2), 5);
   const lastWeight = Math.max(...lastSets.map((s) => s.weight || 0));
   const repsStr = lastSets.map((s) => s.reps).join('/');
@@ -120,14 +139,14 @@ export function suggestForExercise(exercise, allWorkouts, params) {
 
   // デロード判定: 同一重量で直近3回連続して全セット目標未達
   const sameWeightHistory = history.filter((w) => {
-    const sets = (w.sets || []).filter((s) => s.done !== false);
+    const sets = (w.sets || []).filter(isCountedSet);
     return sets.length > 0 && Math.max(...sets.map((s) => s.weight || 0)) === lastWeight;
   });
   const recentThree = sameWeightHistory.slice(0, 3);
   const stalled =
     recentThree.length >= 3 &&
     recentThree.every((w) =>
-      (w.sets || []).filter((s) => s.done !== false).some((s) => (s.reps || 0) < high),
+      (w.sets || []).filter(isCountedSet).some((s) => (s.reps || 0) < high),
     );
 
   if (stalled) {

@@ -8,6 +8,7 @@ import { volume } from '../logic/stats.js';
 import { workoutKcal, cardioKcal, resolveWeight } from '../logic/calories.js';
 import { suggest } from '../logic/suggestion.js';
 import { DEFAULT_SUGGESTION } from '../seed.js';
+import { formatTotal, normalizeOrder, normalizeTiming } from '../data/circuits.js';
 import { icon } from '../ui/icons.js';
 import { navigate } from '../router.js';
 
@@ -160,6 +161,11 @@ export async function render(container) {
   grid.append(suggestCard);
 
   /* ---- クイック記録ボタン ---- */
+  // 所要時間は設定(台数×秒数)から算出 — 設定を変えたらラベルも追従する
+  const circuitTotal = formatTotal(
+    normalizeOrder(await getSetting('circuitOrder'), null),
+    normalizeTiming(await getSetting('circuitTiming')),
+  );
   grid.append(el('div', { class: 'card span-2' },
     el('div', { class: 'section-title', text: '記録する' }),
     el('div', { class: 'row' },
@@ -168,7 +174,7 @@ export async function render(container) {
       el('button', { class: 'btn grow', onClick: () => navigate('/body') }, icon('scale', 18), '体組成'),
     ),
     el('button', { class: 'btn btn-cta mt-2', onClick: () => navigate('/circuit') },
-      icon('timer', 18), 'サーキット(30分)'),
+      icon('timer', 18), `サーキット(${circuitTotal})`),
   ));
 
   /* ---- 今日の記録サマリ ---- */

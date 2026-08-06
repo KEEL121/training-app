@@ -9,6 +9,7 @@
 import { el, clear, uuid, todayStr, formatDateJa, fmtNum, vibrate } from '../util.js';
 import { get, getAll, getAllByIndex, put, getSetting, putSetting } from '../db.js';
 import { MUSCLE_GROUPS, MUSCLE_LABEL } from '../data/default-exercises.js';
+import { formatTotal, normalizeOrder, normalizeTiming } from '../data/circuits.js';
 import { volume } from '../logic/stats.js';
 import { workoutKcal, resolveWeight } from '../logic/calories.js';
 import { toast, openActionMenu } from '../ui/components.js';
@@ -56,6 +57,8 @@ export async function renderPicker(container) {
 
   // サーキット開始カード(先頭・実施中でなければ)
   if (!circuitActive) {
+    const circuitOrder = normalizeOrder(await getSetting('circuitOrder'), null);
+    const circuitTotal = formatTotal(circuitOrder, normalizeTiming(await getSetting('circuitTiming')));
     container.append(el('div', {
       class: 'card tappable mb-4', role: 'button', tabindex: '0',
       onClick: () => navigate('/circuit'),
@@ -64,8 +67,8 @@ export async function renderPicker(container) {
       el('div', { class: 'row' },
         icon('timer'),
         el('div', { class: 'grow' },
-          el('div', { class: 'li-title', text: '🔄 サーキットトレーニング(30分)' }),
-          el('div', { class: 'li-sub', text: 'マシン10台+階段昇降を時間制で一巡' }),
+          el('div', { class: 'li-title', text: `🔄 サーキットトレーニング(${circuitTotal})` }),
+          el('div', { class: 'li-sub', text: `マシン${circuitOrder.length}台+階段昇降を時間制で一巡` }),
         ),
         icon('chevronRight', 18),
       ),

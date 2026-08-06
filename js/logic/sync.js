@@ -15,7 +15,7 @@
 
 import { getAll, bulkPutSync, STORES } from '../db.js';
 import { SCHEMA_VERSION } from '../seed.js';
-import { normalizeOrder } from '../data/circuits.js';
+import { normalizeOrder, normalizeTiming } from '../data/circuits.js';
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_RECORDS_PER_STORE = 100000;
@@ -85,7 +85,8 @@ const sanitizers = {
     }));
     return {
       id, date, exerciseId, sets,
-      durationMin: num(r.durationMin, 1, 1440),
+      // 0は「時間を別レコードに計上済み」の意味を持つ有効値(サーキット由来のマシン記録)
+      durationMin: num(r.durationMin, 0, 1440),
       note: str(r.note, 500),
       ...timestamps(r),
     };
@@ -117,7 +118,7 @@ const sanitizers = {
     };
   },
   settings(r) {
-    const allowedKeys = ['profile', 'suggestion', 'restTimer', 'dateCutoff', 'onboarded', 'circuitOrder'];
+    const allowedKeys = ['profile', 'suggestion', 'restTimer', 'dateCutoff', 'onboarded', 'circuitOrder', 'circuitTiming'];
     // deviceId / lastExportAt / activeWorkout / activeCircuitTimer / seedVersion は
     // 端末固有のため取り込まない(seedVersionは端末ごとの補充状態)
     if (typeof r.key !== 'string' || !allowedKeys.includes(r.key)) return null;
@@ -144,6 +145,7 @@ const sanitizers = {
         break;
       case 'onboarded': value = r.value === true; break;
       case 'circuitOrder': value = normalizeOrder(r.value, null); break;
+      case 'circuitTiming': value = normalizeTiming(r.value); break;
     }
     return { key: r.key, value, ...timestamps(r) };
   },

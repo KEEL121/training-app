@@ -16,11 +16,12 @@
 ## 機能
 
 - 筋トレ記録(種目×重量×回数×セット、セット完了で**即時保存**、レストタイマー+画面スリープ防止)
+- **サーキットトレーニング(既定30分)**: マシン10台+階段昇降を時間制で一巡する専用タイマー。各区間の秒数は設定画面で変更可、終了時に筋トレ/有酸素の記録を自動生成
 - 体組成記録(体重・体脂肪率、**体重計の写真からOCR読み取り**対応)
 - 有酸素記録(時間・距離)
 - グラフ4種(体重7日移動平均、種目別重量+推定1RM、週次ボリューム、週次消費カロリー)
 - ルールベースのメニュー提案(漸進性過負荷・部位ローテーション・デロード判定)
-- METs方式の消費カロリー計算
+- METs方式の消費カロリー計算(安静時代謝を除いた**正味**。筋トレは挙上時間とレスト時間を分けて計算)
 - JSONエクスポート/インポートによる端末間同期(newer-winsマージ+競合選択)
 - 完全オフライン動作(Service Worker)
 
@@ -82,6 +83,8 @@ python -m http.server 8000
 
 - [ ] **`sw.js` の `SHELL_VERSION` を上げたか**(忘れると利用者に更新が届かない)
 - [ ] 新規ファイルを追加した場合、`sw.js` の `SHELL_FILES` に追加したか
+- [ ] 既定種目(`js/data/default-exercises.js`)を追加した場合、`js/seed.js` の `SEED_VERSION` を上げたか(忘れると既存ユーザーに種目が追加されない)
+- [ ] `settings` に新しいキーを追加した場合、`js/logic/sync.js` の `allowedKeys` に入れるか判断したか(端末固有の状態は入れない)
 - [ ] `grep -rn "innerHTML" js/views/` がヒットしないか(ユーザーデータのinnerHTML描画は禁止)
 - [ ] エクスポートJSON・テスト画像がコミットに混ざっていないか(.gitignore + pre-commitフックで防いでいるが目視確認)
 - [ ] `git config core.hooksPath .githooks` を実行済みか(このPCでフックが有効か)
@@ -126,14 +129,17 @@ index.html(CSP/シェル)
 └── js/app.js(DB初期化→シード→ルータ→SW登録)
     ├── router.js     ハッシュルータ(#/workout 等)
     ├── db.js         IndexedDBラッパ(migrations足場/persist()/単一tx一括書込)
-    ├── seed.js       初期データ(種目は固定ID — 端末間マージの前提)
+    ├── seed.js       初期データ投入(SEED_VERSION で既定種目を追加補充)
+    ├── data/         静的マスタ定義
+    │   ├── default-exercises.js  既定種目(固定ID — 端末間マージの前提)
+    │   └── circuits.js           サーキット定義+セグメント列生成/順序正規化
     ├── logic/        純ロジック(UI非依存)
-    │   ├── suggestion.js  メニュー提案
-    │   ├── calories.js    METsカロリー
+    │   ├── suggestion.js  メニュー提案(複合種目は1回2種目まで)
+    │   ├── calories.js    METsカロリー(正味・挙上/レスト分離)
     │   ├── stats.js       1RM/週次集計
     │   ├── ocr.js         前処理+Tesseract+数値パース
     │   └── sync.js        エクスポート/インポート/マージ/検証
-    ├── views/        画面(home/workout/cardio/body/ocr-capture/
+    ├── views/        画面(home/workout/circuit/cardio/body/ocr-capture/
     │                 history/charts/suggest/exercises/settings/onboarding)
     └── ui/           components(トースト/モーダル)/stepper/rest-timer/icons
 ```
@@ -144,3 +150,32 @@ index.html(CSP/シェル)
 - **種目マスタは固定ID**(`ex-bench-press`等): 端末間でIDが一致しないとマージが破綻するため
 - **tombstone(deletedAt)による論理削除**: 削除がインポートで復活しない
 - **SWキャッシュ2分割**: アプリ本体(数百KB)とOCR資材(約20MB)を分離。OCRはオンデマンド取得
+- **既定種目の追加は `seed.js` の `SEED_VERSION` バンプで配布**: 起動毎の全件走査を避けつつ、既存ユーザーにも未登録の既定種目だけをID照合で一度補充する(削除済み種目は復活しない)
+- **提案に入れる複合種目は1回2種目まで**(`suggestion.js` の `MAX_COMPOUND`): 複合を無制限に優先すると、脚のように複合が多い部位で高重量の多関節が4枠を占有し、補助種目(ハム・カーフ等)が締め出される。1部位1セッションのセット数も過多になる
+- **回数が記録されていないセットは提案の材料にしない**(`suggestion.js` の `isCountedSet`): サーキット由来の記録は `reps: null` のため、弾かないと「目標1回〜」や誤ったデロード提案が出る
+- **消費カロリーは正味(net)**: `(METs - 1)` で安静時代謝を差し引く。さらに筋トレは挙上時間(`SET_WORK_MINUTES`)とレスト時間(`REST_METS = 2.0`)を分けて計算する。レストまで種目のMETsで計上すると実測の1.8倍程度に膨らむため
+- **`workouts.durationMin === 0` は「時間を別レコードに計上済み」の意味**: サーキット由来のマシン記録がこれにあたり、カロリー0として扱う(表示もしない)。`null`(時間未入力=セット数から推定)とは意味が違う
+
+### サーキットトレーニング(`views/circuit.js` / `data/circuits.js`)
+
+```
+#/circuit  準備画面                      タイマー画面
++----------------------+          +------------------------+
+| マシン10台を▲▼で並替 |  開始→   | ●●●○○○○○○○  進捗ドット |
+| 各マシンの重量を入力 |          | マシン 3/10 ・ レスト   |
+| (前回値プリフィル)  |          |         0:23           |
++----------------------+          | [⏸][スキップ][終了]    |
+                                  +------------------------+
+                                            | 完了/終了
+1サイクル(既定): マシン60s → レスト30s        ▼
+     → 階段昇降60s → レスト30s          workouts × 実施したマシン数(durationMin=0)
+     × マシン台数 = 30分(秒数は変更可)   cardio  × 1件(セッション全体 8.0 METs)
+```
+
+- **専用画面として独立**: 既存の記録フロー(`workout.js` の `renderSession`)には手を入れていない
+- **進行状態は `settings.activeCircuitTimer`**: 当日のものだけ再開可。画面離脱時は自動一時停止(復帰時の大量スキップ防止)
+- **カウントダウンは `endTime` 方式**: タブが止まってもズレない。遷移ごとに beep+バイブ、実行中は Screen Wake Lock
+- **マシン順は `settings.circuitOrder`、秒数は `settings.circuitTiming`**(どちらも端末間で同期される)。有酸素種目とマシンの顔ぶれはコード固定(v1)
+- **1サイクル=4セグメント構成は固定**: 進捗計算が `segIndex / 4` 前提のため、秒数の下限を5秒として「0秒=そのステーションなし」を作らせない(`TIMING_LIMITS`)
+- **記録の生成は終了時に一括**: 通過済みセグメントだけを集計するため、途中終了でもそこまでが残る
+- **カロリーはセッション全体を1件で計上**: マシン実働+階段の足し算ではレスト時間が丸ごと落ち、3〜4割の過小評価になる。`ex-circuit-training`(8.0 METs、Compendium の "circuit training, general")で所要時間ぶんを1件記録し、マシン側の `workouts` は `durationMin: 0` にして二重計上を防ぐ。マシン記録は重量履歴を残すのが目的

@@ -10,7 +10,7 @@ export const SCHEMA_VERSION = 1;
 
 // 既定種目セットのバージョン。新規種目を追加したらバンプする。
 // バンプ時、既存ユーザーにも未登録の既定種目がID照合で一度だけ補充される。
-export const SEED_VERSION = 2;
+export const SEED_VERSION = 4;
 
 export const DEFAULT_SUGGESTION = { targetRepsHigh: 10, targetRepsLow: 8, recoveryHours: 48 };
 export const DEFAULT_REST_TIMER = { sec: 90, enabled: true };
@@ -35,6 +35,10 @@ export async function seedIfNeeded() {
   // サーキットのマシン順(初期値)。ユーザーが並べ替えたら上書きされる
   if (!(await getSetting('circuitOrder'))) {
     await putSetting('circuitOrder', DEFAULT_CIRCUIT.machineIds.slice());
+  }
+  // サーキットの秒数(初期値)。設定画面から変更可
+  if (!(await getSetting('circuitTiming'))) {
+    await putSetting('circuitTiming', { ...DEFAULT_CIRCUIT.timing });
   }
 
   // 既定種目の補充: SEED_VERSION 未満のときだけ実行(起動毎の全件走査を避ける)。

@@ -7,6 +7,7 @@ import {
 } from '../db.js';
 import { buildExport, exportFileName, parseImport, planMerge, applyMerge } from '../logic/sync.js';
 import { seedIfNeeded, DEFAULT_SUGGESTION, DEFAULT_REST_TIMER } from '../seed.js';
+import { DEFAULT_CIRCUIT, TIMING_LIMITS, normalizeTiming, normalizeOrder, formatTotal } from '../data/circuits.js';
 import { toast, openModal, confirmDialog } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { navigate } from '../router.js';
@@ -63,6 +64,60 @@ export async function render(container) {
       });
       toast('保存しました');
     } }),
+  ));
+
+  /* ---- サーキット設定 ---- */
+  const circuitOrder = normalizeOrder(await getSetting('circuitOrder'), null);
+  const savedTiming = normalizeTiming(await getSetting('circuitTiming'));
+  /** @type {Object<string, HTMLInputElement>} */
+  const timingInputs = {};
+  const timingFields = Object.keys(TIMING_LIMITS).map((key) => {
+    const lim = TIMING_LIMITS[key];
+    const input = /** @type {HTMLInputElement} */ (el('input', {
+      type: 'number', step: '5', min: String(lim.min), max: String(lim.max),
+      value: String(savedTiming[key]),
+      onInput: updateCircuitTotal,
+    }));
+    timingInputs[key] = input;
+    return el('div', { class: 'field' },
+      el('div', { class: 'field-label', text: `${lim.label} ${lim.min}〜${lim.max}` }),
+      input,
+    );
+  });
+  const circuitTotal = el('div', { class: 'caption mb-2' });
+
+  /** 入力欄の値を読んで範囲内に正規化(空欄・範囲外は既定値/上下限に丸まる) */
+  function readTiming() {
+    const raw = {};
+    for (const key of Object.keys(TIMING_LIMITS)) raw[key] = parseInt(timingInputs[key].value, 10);
+    return normalizeTiming(raw);
+  }
+  function updateCircuitTotal() {
+    circuitTotal.textContent = `${circuitOrder.length}台 → 合計 約${formatTotal(circuitOrder, readTiming())}`;
+  }
+  function fillTiming(t) {
+    for (const key of Object.keys(TIMING_LIMITS)) timingInputs[key].value = String(t[key]);
+    updateCircuitTotal();
+  }
+  updateCircuitTotal();
+
+  container.append(sectionCard('サーキット設定',
+    el('p', { class: 'caption mb-2', text: '1サイクル(マシン → レスト → 有酸素 → レスト)の秒数。マシンの順番と重量はサーキット画面で設定します。' }),
+    ...timingFields,
+    circuitTotal,
+    el('div', { class: 'row' },
+      el('button', { class: 'btn grow', text: '保存', onClick: async () => {
+        const t = readTiming();
+        fillTiming(t); // 丸めた結果を入力欄にも反映
+        await putSetting('circuitTiming', t);
+        toast('保存しました(実行中のサーキットには次回開始分から反映されます)');
+      } }),
+      el('button', { class: 'btn', text: '既定に戻す', onClick: async () => {
+        fillTiming({ ...DEFAULT_CIRCUIT.timing });
+        await putSetting('circuitTiming', { ...DEFAULT_CIRCUIT.timing });
+        toast('既定値に戻しました');
+      } }),
+    ),
   ));
 
   /* ---- 種目管理リンク ---- */
