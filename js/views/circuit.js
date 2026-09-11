@@ -11,12 +11,13 @@
 // - 完了/終了時: 各マシン→workouts、階段昇降→cardio を生成(カロリーは既存ロジックで自動算出)
 
 import { el, clear, uuid, todayStr, fmtNum, vibrate, formatDateJa } from '../util.js';
-import { getAll, getAllByIndex, put, getSetting, putSetting } from '../db.js';
+import { get, getAll, getAllByIndex, put, getSetting, putSetting } from '../db.js';
 import {
-  DEFAULT_CIRCUIT, buildSegments, totalSeconds, formatTotal, normalizeOrder, normalizeTiming,
+  DEFAULT_CIRCUIT, LEVEL_MAX, buildSegments, totalSeconds, formatTotal,
+  normalizeOrder, normalizeTiming,
 } from '../data/circuits.js';
 import { cardioKcal, resolveWeight } from '../logic/calories.js';
-import { maxWeight } from '../logic/stats.js';
+import { isCircuitRecord, maxLevel } from '../logic/stats.js';
 import { beep } from '../ui/rest-timer.js';
 import { openModal } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
@@ -27,9 +28,11 @@ export async function render(container) {
   const cutoff = (await getSetting('dateCutoff', { hour: 3 })).hour;
   const today = todayStr(cutoff);
 
-  // 進行中タイマーが当日のものなら再開、それ以外は破棄
+  // 進行中タイマーが当日のものなら再開、それ以外は破棄。
+  // 旧形式(state.weights = kg)のセッションも破棄する — レベルとkgは単位が違って
+  // 流用できず、そのまま完走させると level:null の空レコードが台数ぶん残るため
   let state = await getSetting('activeCircuitTimer');
-  if (state && state.date !== today) {
+  if (state && (state.date !== today || (!state.levels && state.weights))) {
     state = null;
     await putSetting('activeCircuitTimer', null);
   }
@@ -52,12 +55,17 @@ async function renderPrep(container, today, timing) {
   let order = normalizeOrder(await getSetting('circuitOrder'), validIds);
   await putSetting('circuitOrder', order); // 正規化結果を保存
 
-  // 各マシンの前回重量をプリフィル
-  const lastWeights = {};
+  // 各マシンの前回レベルをプリフィル。
+  // 見るのはサーキットのレベル記録だけ — 通常トレのkgは単位が違うので使えない。
+  // 旧形式(概算kgで入力していた時期)の記録しか無ければ空欄から始める。
+  const lastLevels = {};
+  const lastRpe = {}; // moveItem が lastLevels を上書きするので別Mapに持つ
   for (const id of order) {
     const recs = await getAllByIndex('workouts', 'exerciseId', id);
-    const latest = recs.filter((w) => (w.sets || []).length).sort((a, b) => b.date.localeCompare(a.date))[0];
-    lastWeights[id] = latest ? maxWeight(latest) || null : null;
+    const levelRecs = recs.filter((w) => isCircuitRecord(w) && maxLevel(w) > 0);
+    const latest = levelRecs.sort((a, b) => b.date.localeCompare(a.date))[0];
+    lastLevels[id] = latest ? maxLevel(latest) : null;
+    lastRpe[id] = latest ? ((latest.sets || [])[0]?.rpe ?? null) : null;
   }
 
   container.append(
@@ -88,8 +96,21 @@ async function renderPrep(container, today, timing) {
   const listWrap = el('div', {});
   container.append(listWrap);
 
-  // 重量ステッパーの参照を保持(開始時に読む)
+  // レベルステッパーの参照を保持(開始時に読む)
   const steppers = {};
+
+  /** 前回の結果に応じた助言。秒数は設定で変わるので timing から作る */
+  function levelHint(id) {
+    const lv = lastLevels[id];
+    if (lv == null) {
+      return `${timing.machineSec}秒動き続けられて、最後がきついレベル。`
+        + '反動を使わずに。無理ならゆっくり動く/次から1段下げる';
+    }
+    if (lv >= LEVEL_MAX) return '上限に到達。ここからの伸びは通常トレで狙う';
+    if (lastRpe[id] === 1) return `前回は楽でした。レベル${lv + 1} を試しますか`;
+    if (lastRpe[id] === 3) return '前回はきつめ。同じレベルか、1段下げても';
+    return `前回レベル${lv}を完遂。余裕があれば次は1段上げる`;
+  }
 
   function renderList() {
     clear(listWrap);
@@ -97,7 +118,7 @@ async function renderPrep(container, today, timing) {
       const ex = exById[id];
       if (!ex) return;
       const stepper = createStepper({
-        value: lastWeights[id], step: ex.increment || 2.5, unit: 'kg', decimal: true, min: 0, max: 500,
+        value: lastLevels[id], step: 1, unit: 'レベル', decimal: false, min: 1, max: LEVEL_MAX,
       });
       steppers[id] = stepper;
       listWrap.append(el('div', { class: 'card mb-2' },
@@ -118,6 +139,7 @@ async function renderPrep(container, today, timing) {
           ),
         ),
         stepper.root,
+        el('div', { class: 'caption mt-2', text: levelHint(id) }),
       ));
     });
   }
@@ -125,10 +147,10 @@ async function renderPrep(container, today, timing) {
   async function moveItem(i, dir) {
     const j = i + dir;
     if (j < 0 || j >= order.length) return;
-    // 入力中の重量を保持してから並べ替え
+    // 入力中のレベルを保持してから並べ替え
     const cur = {};
-    for (const id of order) cur[id] = steppers[id] ? steppers[id].get() : lastWeights[id];
-    Object.assign(lastWeights, cur);
+    for (const id of order) cur[id] = steppers[id] ? steppers[id].get() : lastLevels[id];
+    Object.assign(lastLevels, cur);
     [order[i], order[j]] = [order[j], order[i]];
     await putSetting('circuitOrder', order.slice());
     renderList();
@@ -141,8 +163,8 @@ async function renderPrep(container, today, timing) {
   ));
 
   async function start() {
-    const weights = {};
-    for (const id of order) weights[id] = steppers[id] ? steppers[id].get() : null;
+    const levels = {};
+    for (const id of order) levels[id] = steppers[id] ? steppers[id].get() : null;
     const segs = buildSegments(order, timing, DEFAULT_CIRCUIT.aerobicId);
     const newState = {
       order: order.slice(),
@@ -151,7 +173,7 @@ async function renderPrep(container, today, timing) {
       segEndAt: Date.now() + segs[0].sec * 1000,
       paused: false,
       remainingMs: segs[0].sec * 1000,
-      weights,
+      levels,
       date: today,
     };
     await putSetting('activeCircuitTimer', newState);
@@ -251,10 +273,10 @@ async function renderTimer(container, state, today, timing) {
     segLabel.textContent = `マシン ${machineNumber()}/${order.length} ・ ${labelMap[seg.kind]}`;
     if (seg.kind === 'machine') {
       const ex = exById[seg.exerciseId];
-      const w = state.weights && state.weights[seg.exerciseId];
+      const lv = state.levels && state.levels[seg.exerciseId];
       segName.textContent = ex ? ex.name : 'マシン';
       segName.style.color = 'var(--accent)';
-      nextPreview.textContent = w ? `設定重量 ${w}kg` : '';
+      nextPreview.textContent = lv ? `レベル ${lv}` : '';
     } else if (seg.kind === 'aerobic') {
       segName.textContent = '階段昇降';
       segName.style.color = 'var(--chart-3)';
@@ -362,17 +384,21 @@ async function renderTimer(container, state, today, timing) {
     order.forEach((_id, i) => { if (state.segIndex > i * 4 + 2) aerobicSegDone++; });
 
     const now = today;
-    // 各マシン → workouts。重量の履歴を残すのが目的で、durationMin は明示的に0にする。
-    // カロリーはセッション全体を1件の有酸素記録で計上するため、ここで足すと二重計上になる
+    // 各マシン → workouts。負荷レベルの履歴を残すのが目的で、durationMin は明示的に0にする。
+    // カロリーはセッション全体を1件の有酸素記録で計上するため、ここで足すと二重計上になる。
+    // 器具はゴム負荷でkgが分からないため weight/reps は使わず level に入れる。
+    const recordIdByExercise = {}; // 体感グリッドから更新するため保持
     for (const i of doneMachineIdx) {
       const id = order[i];
-      const w = state.weights && state.weights[id];
+      const lv = state.levels && state.levels[id];
+      const recId = uuid();
       await put('workouts', {
-        id: uuid(), date: now, exerciseId: id,
-        sets: [{ weight: w ?? null, reps: null, done: true }],
+        id: recId, date: now, exerciseId: id,
+        sets: [{ weight: null, reps: null, level: lv ?? null, rpe: null, done: true }],
         durationMin: 0,
         note: 'サーキット', deletedAt: null,
       });
+      recordIdByExercise[id] = recId;
     }
 
     // セッション全体 → cardio 1件(8.0 METs)。通過したセグメントの秒数を合計する。
@@ -391,13 +417,20 @@ async function renderTimer(container, state, today, timing) {
     }
 
     await putSetting('activeCircuitTimer', null);
-    await showSummary(doneMachineIdx, sessionMin, stairMin, order, exById, now, completed);
+    await showSummary({
+      doneMachineIdx, sessionMin, stairMin, order, exById, date: now, completed,
+      levels: state.levels || {}, recordIdByExercise,
+    });
   }
 }
 
 /* ============ 完了サマリ ============ */
 
-async function showSummary(doneMachineIdx, sessionMin, stairMin, order, exById, date, completed) {
+async function showSummary(opts) {
+  const {
+    doneMachineIdx, sessionMin, stairMin, order, exById, date, completed,
+    levels, recordIdByExercise,
+  } = opts;
   const bodies = await getAll('body');
   const profile = await getSetting('profile');
   const weightKg = resolveWeight(date, bodies, profile);
@@ -414,8 +447,54 @@ async function showSummary(doneMachineIdx, sessionMin, stairMin, order, exById, 
     el('div', { class: 'hero-num text-accent mt-2', text: `${doneMachineIdx.length}/${order.length} マシン` }),
     el('p', { class: 'caption mt-2', text: `${formatDateJa(date)} ・ 所要 約${totalMin}分${stairMin > 0 ? `(階段昇降 約${stairMin}分)` : ''}${kcal ? ` ・ 約${fmtNum(kcal)}kcal` : ''}` }),
     !weightKg ? el('p', { class: 'caption text-warn mt-2', text: '体重を記録するとカロリーが出ます' }) : null,
+    rpeGrid(),
     el('button', { class: 'btn btn-primary btn-cta mt-4', text: 'ホームへ', onClick: () => { close(); navigate('/'); } }),
     el('button', { class: 'btn btn-cta mt-2', text: '履歴を見る', onClick: () => { close(); navigate('/history'); } }),
   );
   const close = openModal(content, { center: true, onClose: () => navigate('/') });
+
+  /**
+   * 手応えの記録。レベルは12段階しかなく、次の段に上がるまで記録がフラットになるため、
+   * 同一レベルでの体感の変化が唯一取れる細かい進歩指標になる。
+   * サーキット進行中は入力する余裕が無いのでここで一括入力する。
+   * 既定は未入力(null) — 押していない体感を捏造しない。
+   */
+  function rpeGrid() {
+    if (doneMachineIdx.length === 0) return null;
+    const wrap = el('div', { class: 'mt-4' },
+      el('div', { class: 'section-title', text: '今日の手応え(任意・あとで変更できます)' }),
+    );
+    for (const i of doneMachineIdx) {
+      const id = order[i];
+      const ex = exById[id];
+      const lv = levels[id];
+      const btns = [1, 2, 3].map((v) => el('button', {
+        class: 'btn grow',
+        text: { 1: '楽', 2: '適正', 3: 'きつい' }[v],
+        onClick: async (e) => {
+          const row = e.target.closest('.card');
+          row.querySelectorAll('.btn').forEach((b) => b.classList.remove('btn-primary'));
+          e.target.classList.add('btn-primary');
+          await saveRpe(id, v);
+        },
+      }));
+      wrap.append(el('div', { class: 'card mb-2' },
+        el('div', { class: 'row-between mb-2' },
+          el('span', { class: 'li-title', text: ex ? ex.name : 'マシン' }),
+          el('span', { class: 'caption', text: lv ? `レベル ${lv}` : '' }),
+        ),
+        el('div', { class: 'row' }, ...btns),
+      ));
+    }
+    return wrap;
+  }
+
+  async function saveRpe(exerciseId, rpe) {
+    const recId = recordIdByExercise[exerciseId];
+    if (!recId) return;
+    const rec = await get('workouts', recId);
+    if (!rec) return;
+    rec.sets = (rec.sets || []).map((s) => ({ ...s, rpe }));
+    await put('workouts', rec);
+  }
 }

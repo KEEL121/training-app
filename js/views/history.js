@@ -3,7 +3,7 @@
 
 import { el, clear, formatDateJa, fmtNum } from '../util.js';
 import { getAll, softDelete, restore, getSetting } from '../db.js';
-import { volume } from '../logic/stats.js';
+import { volume, isCircuitRecord, maxLevel } from '../logic/stats.js';
 import { workoutKcal, cardioKcal, resolveWeight } from '../logic/calories.js';
 import { toast, openActionMenu } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
@@ -83,14 +83,17 @@ export async function render(container) {
       const sets = (w.sets || []).filter((s) => s.done !== false);
       const maxW = sets.length ? Math.max(...sets.map((s) => s.weight || 0)) : 0;
       const weightKg = resolveWeight(w.date, bodies, profile);
-      // durationMin===0 はサーキット由来。カロリーはセッション全体の有酸素記録側に
-      // 計上済みなので、ここで「約0kcal」と出さない
-      const kcalStr = ex && weightKg && w.durationMin !== 0
+      // サーキット由来の記録はカロリーをセッション全体の有酸素記録側に計上済みなので、
+      // ここで「約0kcal」と出さない
+      const circuit = isCircuitRecord(w);
+      const kcalStr = ex && weightKg && !circuit
         ? ` / 約${workoutKcal(w, ex, weightKg).kcal}kcal` : '';
       block.append(itemRow(
         'dumbbell',
         ex ? ex.name : '(削除された種目)',
-        `${maxW}kg × ${sets.map((s) => s.reps).join('/')} ・ ${fmtNum(volume(w))}kg${kcalStr}`,
+        circuit
+          ? circuitSub(w)
+          : `${maxW}kg × ${sets.map((s) => s.reps).join('/')} ・ ${fmtNum(volume(w))}kg${kcalStr}`,
         [
           { label: '編集', iconName: 'edit', onSelect: () => navigate(`/workout-rec/${w.id}`) },
           delAction('workouts', w.id, ex ? ex.name : '記録'),
@@ -116,6 +119,22 @@ export async function render(container) {
       ));
     }
     return block;
+  }
+
+  /**
+   * サーキット記録のサブタイトル。
+   * 新形式はレベル(+手応え)、概算kgで入力していた時期の旧記録は kg を出す。
+   * 素の値をそのまま出すと "0kg × ・ 0kg" になってしまうため分けている。
+   */
+  function circuitSub(w) {
+    const lv = maxLevel(w);
+    if (lv > 0) {
+      const rpe = (w.sets || [])[0]?.rpe;
+      const rpeLabel = { 1: '楽', 2: '適正', 3: 'きつい' }[rpe];
+      return `レベル ${lv}${rpeLabel ? `(${rpeLabel})` : ''} ・ サーキット`;
+    }
+    const kg = Math.max(0, ...(w.sets || []).map((s) => s.weight || 0));
+    return kg > 0 ? `約${kg}kg ・ サーキット` : 'サーキット';
   }
 
   function itemRow(iconName, title, sub, actions, onTap) {

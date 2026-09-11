@@ -5,6 +5,44 @@
 import { weekStart, parseLocal, localDateStr } from '../util.js';
 import { workoutKcal, cardioKcal, resolveWeight } from './calories.js';
 
+/**
+ * @typedef {Object} WorkoutSet
+ * @property {number|null} [weight] 通常トレの重量(kg)
+ * @property {number|null} [reps]   回数
+ * @property {number|null} [level]  サーキットのゴム負荷レベル(1〜LEVEL_MAX)
+ * @property {number|null} [rpe]    サーキットの体感 1=楽 2=適正 3=きつい
+ * @property {boolean} [done]
+ */
+
+/**
+ * サーキット由来の記録か。
+ * durationMin に 0 を書くのは circuit.js だけ(通常記録は null)。
+ * ただし過去に「同日のサーキット記録に通常トレが合流した」レコード
+ * (durationMin:0 かつ回数あり)は通常記録として扱う — そうしないと通常グラフ・
+ * 自己ベスト★・プリフィルのすべてから消え、記録がどこにも表示されなくなる。
+ * サーキットのレベル記録は reps:null なので誤爆しない。
+ * ★制約: workouts の durationMin をユーザー入力可能にしてはいけない。
+ *   0 を入れた通常記録が静かにサーキット扱いになる。
+ * ※ calories.js は 0 という「値」自体が計算に必要なので、置き換えないこと。
+ */
+export function isCircuitRecord(workout) {
+  if (workout.durationMin !== 0) return false;
+  return !(workout.sets || []).some((s) => (s.reps || 0) > 0);
+}
+
+/**
+ * 記録内の最大レベル(サーキットのゴム負荷)
+ * @returns {number} 0 = レベル記録なし(未完了セットのみの場合も含む)
+ */
+export function maxLevel(workout) {
+  let best = 0;
+  for (const s of workout.sets || []) {
+    if (s.done === false || !s.level) continue;
+    best = Math.max(best, s.level);
+  }
+  return best;
+}
+
 /** 1記録のトレーニングボリューム(Σ 重量×回数、完了セットのみ) */
 export function volume(workout) {
   return (workout.sets || [])

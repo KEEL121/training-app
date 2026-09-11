@@ -6,7 +6,11 @@ import { uuid, nowISO } from './util.js';
 import { DEFAULT_EXERCISES } from './data/default-exercises.js';
 import { DEFAULT_CIRCUIT } from './data/circuits.js';
 
-export const SCHEMA_VERSION = 1;
+// エクスポート形式のバージョン。後方互換の無い変更を入れたらバンプする。
+// バンプすると、旧バージョンのアプリは新しいファイルの取り込みを
+// 明示的に拒否する(sync.js の parseImport)。黙ってフィールドが欠落するより安全。
+// v2: workouts.sets に level(サーキットのゴム負荷レベル) / rpe(体感) を追加
+export const SCHEMA_VERSION = 2;
 
 // 既定種目セットのバージョン。新規種目を追加したらバンプする。
 // バンプ時、既存ユーザーにも未登録の既定種目がID照合で一度だけ補充される。
