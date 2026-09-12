@@ -4,7 +4,7 @@
 
 import { el, todayStr, formatDateJa, fmtNum, weekStart, daysBetween } from '../util.js';
 import { get, getAll, getSetting } from '../db.js';
-import { volume } from '../logic/stats.js';
+import { volume, isCircuitRecord, maxLevel } from '../logic/stats.js';
 import { workoutKcal, cardioKcal, resolveWeight } from '../logic/calories.js';
 import { suggest } from '../logic/suggestion.js';
 import { DEFAULT_SUGGESTION } from '../seed.js';
@@ -187,9 +187,13 @@ export async function render(container) {
     for (const w of todayWorkouts) {
       const ex = exById[w.exerciseId];
       const sets = (w.sets || []).filter((s) => s.done !== false);
+      // サーキット記録は重量/回数を持たないので volume は 0。履歴と同じ見せ方に揃える
+      const detail = isCircuitRecord(w)
+        ? (maxLevel(w) > 0 ? `レベル ${maxLevel(w)}` : 'サーキット')
+        : `${sets.length}セット ${fmtNum(volume(w))}kg`;
       summary.append(el('div', { class: 'row-between mt-2' },
         el('span', { text: ex ? ex.name : '?' }),
-        el('span', { class: 'text-sub num', text: `${sets.length}セット ${fmtNum(volume(w))}kg` }),
+        el('span', { class: 'text-sub num', text: detail }),
       ));
     }
     for (const c of todayCardio) {

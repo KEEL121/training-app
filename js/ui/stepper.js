@@ -82,7 +82,9 @@ export function createStepper(opts) {
 
   input.addEventListener('change', () => {
     const v = getVal();
-    if (v != null) setVal(Math.min(Math.max(v, min), max));
+    // decimal:false は整数を扱う欄(回数・分・レベル)。キーボード入力やペーストで
+    // 小数が入りうるので、ここで丸める(inputmode属性だけでは防げない)
+    if (v != null) setVal(Math.min(Math.max(decimal ? v : Math.round(v), min), max));
     opts.onChange && opts.onChange(getVal());
   });
   input.addEventListener('keydown', (e) => {

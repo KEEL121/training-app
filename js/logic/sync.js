@@ -78,9 +78,15 @@ const sanitizers = {
     const date = typeof r.date === 'string' && DATE_RE.test(r.date) ? r.date : null;
     const exerciseId = typeof r.exerciseId === 'string' && (UUID_RE.test(r.exerciseId) || SLUG_RE.test(r.exerciseId)) ? r.exerciseId : null;
     if (!id || !date || !exerciseId || !Array.isArray(r.sets)) return null;
+    // level/rpe はサーキット(ゴム負荷の器具)専用。通さないとエクスポート往復で消える。
+    // 上限は UI の LEVEL_MAX と意図的に別にしてある — num は範囲外を clamp せず
+    // null 化する(=値の破棄)ため、器具を替えて UI 側の上限を下げた瞬間に
+    // 既存データが消えてしまう。ここはスキーマ境界として広く不変に保つ。
     const sets = r.sets.slice(0, 50).map((s) => ({
       weight: num(s?.weight, 0, 1000),
       reps: num(s?.reps, 0, 1000),
+      level: num(s?.level, 1, 100),
+      rpe: num(s?.rpe, 1, 10),
       done: s?.done !== false,
     }));
     return {

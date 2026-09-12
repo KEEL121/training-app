@@ -10,7 +10,7 @@ import { el, clear, uuid, todayStr, formatDateJa, fmtNum, vibrate } from '../uti
 import { get, getAll, getAllByIndex, put, getSetting, putSetting } from '../db.js';
 import { MUSCLE_GROUPS, MUSCLE_LABEL } from '../data/default-exercises.js';
 import { formatTotal, normalizeOrder, normalizeTiming } from '../data/circuits.js';
-import { volume } from '../logic/stats.js';
+import { volume, isCircuitRecord, maxLevel } from '../logic/stats.js';
 import { workoutKcal, resolveWeight } from '../logic/calories.js';
 import { toast, openActionMenu } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
@@ -113,6 +113,12 @@ export async function renderPicker(container) {
     const last = recs[0];
     const sets = (last.sets || []).filter((s) => s.done !== false);
     if (sets.length === 0) return '記録なし';
+    // サーキット記録は重量/回数を持たないので、そのまま出すと "0kg × " になる。
+    // 「最近」タブの並び(lastDateByEx)はサーキットを含むため、除外ではなく分岐させる
+    // (除外すると「記録なし」の行が並ぶ)
+    if (isCircuitRecord(last)) {
+      return `前回 ${formatDateJa(last.date)}: サーキット(レベル${maxLevel(last) || '-'})`;
+    }
     const w = Math.max(...sets.map((s) => s.weight || 0));
     const reps = sets.map((s) => s.reps).join('/');
     return `前回 ${formatDateJa(last.date)}: ${w}kg × ${reps}`;
@@ -172,9 +178,11 @@ export async function renderSession(container, params) {
   } else {
     exercise = await get('exercises', params.exerciseId);
     if (!exercise) { toast('種目が見つかりません'); navigate('/workout'); return; }
-    // 今日の同種目記録があれば続きから
+    // 今日の同種目記録があれば続きから。
+    // サーキット由来の記録は拾わない — 拾うと通常トレのセットがサーキットの
+    // レコードに合流し、durationMin:0(カロリー0)のまま kg が混ざる
     const todayRecs = (await getAllByIndex('workouts', 'exerciseId_date', IDBKeyRange.only([exercise.id, today])));
-    record = todayRecs[0] || null;
+    record = todayRecs.find((w) => !isCircuitRecord(w)) || null;
   }
   if (!exercise) { toast('種目が見つかりません'); navigate('/history'); return; }
 
@@ -182,8 +190,10 @@ export async function renderSession(container, params) {
 
   // 前回記録(この記録の日付より前で直近)
   const baseDate = record ? record.date : today;
+  // サーキット記録は除外する。単位が違う(レベル)ため、重量のプリフィルにも
+  // 「前回」バナーにも使えない
   const pastRecords = (await getAllByIndex('workouts', 'exerciseId', exercise.id))
-    .filter((w) => w.date < baseDate && (w.sets || []).some((s) => s.done !== false))
+    .filter((w) => w.date < baseDate && !isCircuitRecord(w) && (w.sets || []).some((s) => s.done !== false))
     .sort((a, b) => b.date.localeCompare(a.date));
   const lastRec = pastRecords[0] || null;
 
@@ -256,6 +266,15 @@ export async function renderSession(container, params) {
       ),
     ),
   );
+
+  // サーキット由来の記録はレベルで記録されており、この画面の重量/回数欄は使わない。
+  // 何も出さないと空欄だけが並び、重量を入れると level と併存して「消えた」ように見える
+  if (isCircuitRecord(record)) {
+    const lv = maxLevel(record);
+    container.append(el('div', { class: 'banner' },
+      el('span', { class: 'grow', text: `サーキットの記録${lv ? `(レベル ${lv})` : ''}。重量・回数は使いません` }),
+    ));
+  }
 
   // 前回記録表示+コピー
   if (lastRec) {

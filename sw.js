@@ -6,7 +6,7 @@
 //
 // ★リリース手順: ファイルを変更したら必ず SHELL_VERSION を上げること(README参照)
 
-const SHELL_VERSION = 'v4';
+const SHELL_VERSION = 'v5';
 const SHELL_CACHE = `app-shell-${SHELL_VERSION}`;
 const OCR_CACHE = 'ocr-v1';
 

@@ -7,8 +7,12 @@
 
 import { el, clear, localDateStr, parseLocal, fmtNum } from '../util.js';
 import { getAll, getSetting } from '../db.js';
-import { movingAvg7, weeklyVolumeByGroup, weeklyKcal, maxWeight, e1RM, personalBests } from '../logic/stats.js';
+import {
+  movingAvg7, weeklyVolumeByGroup, weeklyKcal, maxWeight, e1RM, personalBests,
+  isCircuitRecord, maxLevel,
+} from '../logic/stats.js';
 import { MUSCLE_GROUPS, MUSCLE_LABEL } from '../data/default-exercises.js';
+import { LEVEL_MAX } from '../data/circuits.js';
 import { onLeave, navigate } from '../router.js';
 
 const PERIODS = [
@@ -211,42 +215,80 @@ export async function render(container) {
     select.addEventListener('change', () => { selectedExId = select.value; drawAll(); });
     select.style.maxWidth = '200px';
 
-    const recs = workouts
+    // 通常トレ(kg)とサーキット(ゴム負荷レベル)は単位が違うので系統を分ける。
+    // 旧形式のサーキット記録(概算kgで入力していた時期)はレベルを持たないので
+    // どちらの系統にも載せない — 履歴には残るがグラフでは混ぜない。
+    const inRange = workouts
       .filter((w) => w.exerciseId === selectedExId && w.date >= cut)
       .sort((a, b) => a.date.localeCompare(b.date));
+    const normalRecs = inRange.filter((w) => !isCircuitRecord(w));
+    const levelRecs = inRange.filter((w) => isCircuitRecord(w) && maxLevel(w) > 0);
 
-    const allTime = workouts.filter((w) => w.exerciseId === selectedExId);
-    const { best, prDates } = personalBests(allTime);
-    const summary = best > 0 ? `自己ベスト ${best}kg` : '';
+    const allTimeNormal = workouts
+      .filter((w) => w.exerciseId === selectedExId && !isCircuitRecord(w));
+    const { best, prDates } = personalBests(allTimeNormal);
+    const bestLevel = levelRecs.reduce((m, w) => Math.max(m, maxLevel(w)), 0);
+    // 空文字にすると chartBox の visually-hidden な代替テキストごと消えるので、
+    // レベル記録しか無い種目でも何か出す
+    const summary = best > 0 ? `自己ベスト ${best}kg`
+      : (bestLevel > 0 ? `サーキット最高レベル ${bestLevel}` : '');
 
     const canvas = chartBox('種目別の重量推移', summary, exercisedIds.length ? select : null);
-    if (!selectedExId || recs.length === 0) return emptyNote(canvas, 'この期間の記録がありません');
+    if (!selectedExId || normalRecs.length + levelRecs.length === 0) {
+      return emptyNote(canvas, 'この期間の記録がありません');
+    }
 
+    // ★この並び順は固定。afterLabel が datasetIndex 0 を通常記録の前提にしている
     const datasets = [
       {
-        label: '最大重量',
-        data: recs.map((w) => ({ x: parseLocal(w.date), y: maxWeight(w) })),
+        label: '最大重量(通常)',
+        data: normalRecs.map((w) => ({ x: parseLocal(w.date), y: maxWeight(w) })),
         borderColor: cssVar('--accent'),
-        backgroundColor: recs.map((w) => prDates.has(w.date) ? cssVar('--warn') : cssVar('--accent')),
-        pointStyle: recs.map((w) => (prDates.has(w.date) ? 'star' : 'circle')),
-        pointRadius: recs.map((w) => (prDates.has(w.date) ? 8 : 3.5)),
+        backgroundColor: normalRecs.map((w) => prDates.has(w.date) ? cssVar('--warn') : cssVar('--accent')),
+        pointStyle: normalRecs.map((w) => (prDates.has(w.date) ? 'star' : 'circle')),
+        pointRadius: normalRecs.map((w) => (prDates.has(w.date) ? 8 : 3.5)),
         tension: 0.2, borderWidth: 2.5,
       },
       {
-        label: '推定1RM',
-        data: recs.map((w) => ({ x: parseLocal(w.date), y: e1RM(w) })),
+        label: '推定1RM(通常)',
+        data: normalRecs.map((w) => ({ x: parseLocal(w.date), y: e1RM(w) })),
         borderColor: cssVar('--chart-2'),
         backgroundColor: cssVar('--chart-2'),
         borderDash: [6, 4], tension: 0.2, pointRadius: 2, pointStyle: 'rect', borderWidth: 2,
       },
     ];
+    if (levelRecs.length > 0) {
+      datasets.push({
+        label: 'サーキット負荷レベル',
+        data: levelRecs.map((w) => ({ x: parseLocal(w.date), y: maxLevel(w) })),
+        borderColor: cssVar('--chart-3'),
+        backgroundColor: cssVar('--chart-3'),
+        // レベルは順序尺度。折れ線で補間すると「5.4」という中間状態があるように
+        // 見えてしまうので階段状に描く
+        stepped: true,
+        borderDash: [2, 3], pointRadius: 3, borderWidth: 2,
+        yAxisID: 'yLevel',
+      });
+    }
     const opts = baseOptions();
-    opts.scales = { x: timeScale(), y: linScale('kg') };
+    opts.scales = {
+      x: timeScale(),
+      y: { ...linScale('kg'), position: 'left' },
+      ...(levelRecs.length > 0 ? {
+        yLevel: {
+          ...linScale('レベル'), position: 'right',
+          min: 0, max: LEVEL_MAX,
+          ticks: { ...linScale('').ticks, stepSize: 1 },
+          grid: { display: false },
+        },
+      } : {}),
+    };
     opts.plugins.tooltip = {
       callbacks: {
         afterLabel: (ctx) => {
-          const w = recs[ctx.dataIndex];
-          return ctx.datasetIndex === 0 && prDates.has(w.date) ? '★ 自己ベスト!' : '';
+          if (ctx.datasetIndex !== 0) return ''; // 通常記録の最大重量線だけ
+          const w = normalRecs[ctx.dataIndex];
+          return w && prDates.has(w.date) ? '★ 自己ベスト!' : '';
         },
       },
     };
@@ -258,8 +300,15 @@ export async function render(container) {
     const inRange = workouts.filter((w) => w.date >= cut);
     const weekly = weeklyVolumeByGroup(inRange, exById);
     const weeks = [...weekly.keys()].sort();
+    // サーキット記録は回数を持たないので volume() が 0 を返し、この集計から丸ごと落ちる。
+    // 誤差の「向き」を書かないと、足りないと誤読して通常トレを足す方向に動いてしまう
+    const hasCircuit = inRange.some(isCircuitRecord);
+    const volNote = hasCircuit
+      ? '。※ サーキット分は含まれません(回数を記録しないため)。'
+        + 'サーキットを行った週は、実際の負荷はこのグラフより多くなります'
+      : '';
     const canvas = chartBox('週次トレーニングボリューム(部位別)',
-      weeks.length ? `${weeks.length}週分 / 重量×回数の合計` : '');
+      weeks.length ? `${weeks.length}週分 / 重量×回数の合計${volNote}` : '');
     if (weeks.length === 0) return emptyNote(canvas, 'この期間の筋トレ記録がありません');
 
     const groupColors = {
