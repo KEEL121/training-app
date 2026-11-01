@@ -86,13 +86,15 @@ export async function render(container) {
       // サーキット由来の記録はカロリーをセッション全体の有酸素記録側に計上済みなので、
       // ここで「約0kcal」と出さない
       const circuit = isCircuitRecord(w);
-      const kcalStr = ex && weightKg && !circuit
+      // kcal の表示有無は calories.js と同じく durationMin の値で決める(0 = 別レコードで計上済み)。
+      // 初期版のサーキット記録は durationMin:1 でカロリーが合計に入っているので、表示も出す
+      const kcalStr = ex && weightKg && w.durationMin !== 0
         ? ` / 約${workoutKcal(w, ex, weightKg).kcal}kcal` : '';
       block.append(itemRow(
         'dumbbell',
         ex ? ex.name : '(削除された種目)',
         circuit
-          ? circuitSub(w)
+          ? `${circuitSub(w)}${kcalStr}`
           : `${maxW}kg × ${sets.map((s) => s.reps).join('/')} ・ ${fmtNum(volume(w))}kg${kcalStr}`,
         [
           { label: '編集', iconName: 'edit', onSelect: () => navigate(`/workout-rec/${w.id}`) },

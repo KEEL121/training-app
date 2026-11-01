@@ -2,16 +2,18 @@
 // suggestion.js — ルールベースのメニュー提案エンジン(純ロジック・UI非依存)
 //
 //   Step1 部位決定: 最終トレ日が最も古い部位(回復48h以内は除外、記録ゼロ最優先)
+//                   通常トレの記録だけで判定。直近のサーキットは circuitNote で伝える
 //   Step2 種目選定: 複合種目優先で3〜4種目
 //   Step3 漸進性過負荷:
 //     記録なし        --> 軽めで10回×3(重量空欄)
 //     全セット目標達成 --> 重量+increment、目標回数リセット
 //     目標未達あり    --> 同重量で最弱セット+1回
-//     3回連続停滞     --> 10%デロード
+//     3回連続停滞     --> 10%デロード(今の重量に変えてからの記録だけで数える)
 //   Step4 日本語の理由文を付与
 
 import { GROUP_PRIORITY, MUSCLE_LABEL } from '../data/default-exercises.js';
 import { daysBetween } from '../util.js';
+import { isCircuitRecord } from './stats.js';
 
 /** 1回の提案に入れる複合種目の上限(残りの枠は単関節の補助種目に回す) */
 const MAX_COMPOUND = 2;
@@ -39,15 +41,24 @@ const isCountedSet = (s) => s.done !== false && (s.reps || 0) > 0;
  * @param {any[]} exercises 種目マスタ(deletedAt除外済み)
  * @param {{targetRepsHigh: number, targetRepsLow: number, recoveryHours: number}} params
  * @param {string} today YYYY-MM-DD
- * @returns {{targetGroup: string|null, targetGroupLabel: string, items: SuggestionItem[]}}
+ * @returns {{targetGroup: string|null, targetGroupLabel: string, items: SuggestionItem[], circuitNote: string|null}}
+ *   circuitNote = 回復期間内にサーキットをやっていれば、その旨の一言(無ければ null)
  */
 export function suggest(workouts, exercises, params, today) {
   const strength = exercises.filter((e) => e.type === 'strength');
   const exById = Object.fromEntries(strength.map((e) => [e.id, e]));
 
-  // Step1: 部位ごとの最終トレ日
+  // Step1: 部位ごとの最終トレ日(通常トレのみ)
+  // サーキットは10台で6部位すべてを触るため、含めると全部位の最終日が同じ日付に揃い、
+  // タイブレークで常に GROUP_PRIORITY の先頭(胸)が選ばれ続ける。サーキットの疲労は
+  // 部位を選ぶ材料にせず、下の circuitNote で「初動は軽めから」と伝える。
   const lastByGroup = {};
+  let lastCircuit = null;
   for (const w of workouts) {
+    if (isCircuitRecord(w)) {
+      if (!lastCircuit || w.date > lastCircuit) lastCircuit = w.date;
+      continue;
+    }
     const ex = exById[w.exerciseId];
     if (!ex || !ex.muscleGroup) continue;
     const g = ex.muscleGroup;
@@ -55,6 +66,7 @@ export function suggest(workouts, exercises, params, today) {
   }
 
   const recoveryDays = Math.ceil((params.recoveryHours || 48) / 24);
+  const circuitNote = circuitFatigueNote(lastCircuit, today, recoveryDays);
   const groups = GROUP_PRIORITY.filter((g) => strength.some((e) => e.muscleGroup === g));
 
   // 回復期間内(recoveryDays未満)の部位は除外
@@ -74,7 +86,7 @@ export function suggest(workouts, exercises, params, today) {
     return GROUP_PRIORITY.indexOf(a) - GROUP_PRIORITY.indexOf(b);
   });
   const targetGroup = pool[0] || null;
-  if (!targetGroup) return { targetGroup: null, targetGroupLabel: '', items: [] };
+  if (!targetGroup) return { targetGroup: null, targetGroupLabel: '', items: [], circuitNote };
 
   // Step2: 種目選定(複合を先頭2種目まで → 残りは単関節、計4種目)
   // 複合を無制限に優先すると、脚のように複合種目が多い部位で高重量の多関節が4枠を
@@ -93,7 +105,7 @@ export function suggest(workouts, exercises, params, today) {
   // Step3: 各種目のセット内容
   const items = candidates.map((ex) => suggestForExercise(ex, workouts, params));
 
-  return { targetGroup, targetGroupLabel: MUSCLE_LABEL[targetGroup] || targetGroup, items };
+  return { targetGroup, targetGroupLabel: MUSCLE_LABEL[targetGroup] || targetGroup, items, circuitNote };
 }
 
 /**
@@ -137,12 +149,18 @@ export function suggestForExercise(exercise, allWorkouts, params) {
     };
   }
 
-  // デロード判定: 同一重量で直近3回連続して全セット目標未達
-  const sameWeightHistory = history.filter((w) => {
+  // デロード判定: 今の重量で直近3回連続して目標未達。
+  // 「連続」は今の重量に変えてからの記録だけで数え、重量が違う記録に当たったら打ち切る。
+  // 遡って以前の同重量の記録まで数えると、デロード → 重量アップした直後の1回目で
+  // 過去の記録と合わせて「3回停滞」と誤判定してしまう。
+  const currentWeightStreak = [];
+  for (const w of history) {
     const sets = (w.sets || []).filter(isCountedSet);
-    return sets.length > 0 && Math.max(...sets.map((s) => s.weight || 0)) === lastWeight;
-  });
-  const recentThree = sameWeightHistory.slice(0, 3);
+    if (sets.length === 0) continue;
+    if (Math.max(...sets.map((s) => s.weight || 0)) !== lastWeight) break;
+    currentWeightStreak.push(w);
+  }
+  const recentThree = currentWeightStreak.slice(0, 3);
   const stalled =
     recentThree.length >= 3 &&
     recentThree.every((w) =>
@@ -172,6 +190,18 @@ export function suggestForExercise(exercise, allWorkouts, params) {
     })),
     reason: `前回 ${lastWeight}kg×${repsStr} → 同重量で回数を伸ばす(目標${targetReps}回〜)`,
   };
+}
+
+/**
+ * 回復期間内にサーキットをやっていれば、その一言を返す(無ければ null)。
+ * サーキットは部位選びの材料にしない代わりに、全身に疲労が残っていることをここで伝える。
+ */
+function circuitFatigueNote(lastCircuit, today, recoveryDays) {
+  if (!lastCircuit) return null;
+  const ago = daysBetween(today, lastCircuit);
+  if (ago < 0 || ago >= recoveryDays) return null;
+  const when = ago === 0 ? '今日' : ago === 1 ? '昨日' : `${ago}日前`;
+  return `${when}サーキットをやっています。全身に疲労が残っているので、初動は軽めから`;
 }
 
 /** increment刻みに丸める(0.5kg未満の端数を防ぐ) */

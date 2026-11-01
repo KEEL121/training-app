@@ -36,7 +36,8 @@ export async function render(container) {
     icon('sparkles'),
     el('div', { class: 'grow' },
       el('div', { text: `今日のおすすめ部位: ${result.targetGroupLabel}` }),
-      el('div', { class: 'caption', text: '回復時間(48時間)と前回からの間隔をもとに選んでいます' }),
+      el('div', { class: 'caption', text: '通常トレの記録から、回復時間(48時間)と前回からの間隔をもとに選んでいます' }),
+      result.circuitNote ? el('div', { class: 'caption text-warn mt-2', text: result.circuitNote }) : null,
     ),
   ));
 
