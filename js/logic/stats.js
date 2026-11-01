@@ -21,13 +21,20 @@ import { workoutKcal, cardioKcal, resolveWeight } from './calories.js';
  * (durationMin:0 かつ回数あり)は通常記録として扱う — そうしないと通常グラフ・
  * 自己ベスト★・プリフィルのすべてから消え、記録がどこにも表示されなくなる。
  * サーキットのレベル記録は reps:null なので誤爆しない。
+ *
+ * 初期版のサーキット(2026-08上旬まで)は durationMin に 1(マシン1分)を書いていたため、
+ * note==='サーキット' かつ回数なし の記録もサーキットとして扱う。
+ * これを拾わないと、通常トレの部位ローテーションやグラフに概算kgの記録が混ざる。
+ *
  * ★制約: workouts の durationMin をユーザー入力可能にしてはいけない。
  *   0 を入れた通常記録が静かにサーキット扱いになる。
  * ※ calories.js は 0 という「値」自体が計算に必要なので、置き換えないこと。
  */
 export function isCircuitRecord(workout) {
-  if (workout.durationMin !== 0) return false;
-  return !(workout.sets || []).some((s) => (s.reps || 0) > 0);
+  const hasReps = (workout.sets || []).some((s) => (s.reps || 0) > 0);
+  if (hasReps) return false;
+  if (workout.durationMin === 0) return true;
+  return workout.durationMin === 1 && workout.note === 'サーキット'; // 初期版の記録
 }
 
 /**

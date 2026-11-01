@@ -133,6 +133,7 @@ export async function render(container) {
       el('div', { class: 'section-title', text: `今日の提案 ▸ ${suggestion.targetGroupLabel}` }),
       el('button', { class: 'btn btn-ghost', text: 'すべて見る', onClick: () => navigate('/suggest') }),
     ),
+    suggestion.circuitNote ? el('p', { class: 'caption text-warn', text: suggestion.circuitNote }) : null,
   );
   if (suggestion.items.length > 0) {
     for (const item of suggestion.items.slice(0, 3)) {
